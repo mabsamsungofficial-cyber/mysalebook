@@ -333,6 +333,36 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // EXPORT SALES TO CSV
+  const exportSalesData = (exportAll = false) => {
+    const dataToExport = exportAll ? sales : filteredSalesByMonth;
+
+    if (dataToExport.length === 0) {
+      showNotification("No sales data to export!");
+      return;
+    }
+
+    let csvContent = "Date,Month,Category,Model Name,Price,Incentive,IMEI,Sellout,Upgrade\n";
+
+    dataToExport.forEach(sale => {
+      const month = sale.date.substring(0, 7); // Format YYYY-MM
+      const category = getSaleCategory(sale);
+      const safeModelName = `"${sale.modelName.replace(/"/g, '""')}"`;
+      const safeImei = `"${sale.imei || ''}"`;
+
+      csvContent += `${sale.date},${month},${category.toUpperCase()},${safeModelName},${sale.dpNumber || 0},${sale.incentive || 0},${safeImei},${sale.selloutSupport || 0},${sale.upgrade || 0}\n`;
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `SaleBook_Report_${exportAll ? 'All_Time' : selectedMonth}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showNotification("Excel report downloaded!");
+  };
+
   const handleArrayChange = (category, index, field, value) => {
     if (!draftSlabs) return;
     const newSlabs = { ...draftSlabs };
@@ -798,11 +828,16 @@ export default function App() {
                 </div>
               </div>
 
-              {/* TOGGLE HEADER FOR SALES HISTORY */}
+              {/* TOGGLE HEADER FOR SALES HISTORY & EXPORT BUTTON */}
               <div className="flex items-center justify-between mb-3 sm:mb-4 px-1 sm:px-2 w-full">
-                <h2 className="text-[10px] sm:text-[11px] font-bold text-white/70 uppercase tracking-widest drop-shadow-sm">
-                  Sales History
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-[10px] sm:text-[11px] font-bold text-white/70 uppercase tracking-widest drop-shadow-sm">
+                    Sales History
+                  </h2>
+                  <button onClick={() => exportSalesData(false)} title="Export Month Data" className="bg-white/10 hover:bg-white/20 p-1.5 rounded-full transition-colors border border-white/20 shadow-sm flex items-center justify-center">
+                    <FileDown className="w-3.5 h-3.5 text-white/90" />
+                  </button>
+                </div>
                 
                 <div className="flex items-center bg-black/30 p-1 rounded-full border border-white/10">
                   <button 
@@ -1067,7 +1102,7 @@ export default function App() {
 
             <main className="flex-1 overflow-y-auto p-4 sm:p-5 pb-10 hide-scrollbar w-full flex flex-col gap-4 sm:gap-5">
               
-              {/* CARD 1: MODEL & DATE (Highest z-index so dropdown stays on top) */}
+              {/* CARD 1: MODEL & DATE */}
               <div className={`${glassCard} p-5 sm:p-6 flex flex-col gap-4 sm:gap-5 w-full relative z-[60]`}>
                 <div className="flex flex-col w-full">
                   <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 flex items-center truncate"><Calendar className="w-3.5 h-3.5 mr-1.5 opacity-80 shrink-0" strokeWidth={2}/> Sale Date</label>
@@ -1105,7 +1140,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* CARD 2: PRICE & INC (Lower z-index) */}
+              {/* CARD 2: PRICE & INC */}
               <div className={`${glassCard} p-5 sm:p-6 transition-all duration-300 w-full relative z-[50] ${!selectedSaleModel ? 'opacity-40 pointer-events-none' : ''}`}>
                 <div className="grid grid-cols-2 gap-4 sm:gap-5 w-full">
                   <div className="flex flex-col w-full">
@@ -1123,7 +1158,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* CARD 3: IMEI & EXTRAS (Lowest z-index) */}
+              {/* CARD 3: IMEI & EXTRAS */}
               <div className={`${glassCard} p-5 sm:p-6 w-full flex flex-col gap-5 sm:gap-6 relative z-[40]`}>
                 <div className="flex flex-col w-full">
                   <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 flex items-center truncate"><ScanLine className="w-3.5 h-3.5 mr-2 opacity-80 shrink-0" strokeWidth={2}/> IMEI Number</label>
@@ -1260,15 +1295,23 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* UPDATED DATA BACKUP CARD WITH EXPORT ALL OPTION */}
                 <div className={`${glassCard} p-5 sm:p-6 w-full shrink-0`}>
-                  <h2 className="text-[11px] sm:text-[13px] font-bold text-white uppercase tracking-widest flex items-center mb-3 sm:mb-4 truncate drop-shadow-sm"><Database className="w-4 h-4 sm:w-5 sm:h-5 mr-2.5 opacity-90 shrink-0" strokeWidth={2}/> Data Backup</h2>
-                  <p className="text-[12px] sm:text-[13.5px] text-white/80 mb-5 sm:mb-6 leading-relaxed font-medium">Securely save your sales and settings data locally, or restore a previous backup.</p>
-                  <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full">
-                    <button onClick={handleBackup} className="flex-1 flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-white/10 border border-white/30 text-white hover:bg-white/20 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner shrink-0"><Download className="w-4.5 h-4.5 opacity-80 shrink-0" strokeWidth={2}/> Backup</button>
-                    <button onClick={() => fileInputRef.current?.click()} disabled={isRestoring} className="flex-1 flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-white/10 border border-white/30 text-white hover:bg-white/20 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner disabled:opacity-50 shrink-0">
-                      {isRestoring ? <Loader2 className="w-4.5 h-4.5 animate-spin opacity-80 shrink-0" strokeWidth={2} /> : <Upload className="w-4.5 h-4.5 opacity-80 shrink-0" strokeWidth={2} />} {isRestoring ? 'Restoring...' : 'Restore'}
+                  <h2 className="text-[11px] sm:text-[13px] font-bold text-white uppercase tracking-widest flex items-center mb-3 sm:mb-4 truncate drop-shadow-sm"><Database className="w-4 h-4 sm:w-5 sm:h-5 mr-2.5 opacity-90 shrink-0" strokeWidth={2}/> Data Management</h2>
+                  <p className="text-[12px] sm:text-[13.5px] text-white/80 mb-5 sm:mb-6 leading-relaxed font-medium">Backup your data, restore, or export all sales to Excel.</p>
+                  
+                  <div className="flex flex-col gap-3 sm:gap-4 w-full">
+                    <button onClick={() => exportSalesData(true)} className="w-full flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-green-500/20 border border-green-500/30 text-green-100 hover:bg-green-500/30 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner shrink-0">
+                      <FileDown className="w-4.5 h-4.5 opacity-90 shrink-0" strokeWidth={2}/> Export All Sales (Excel)
                     </button>
-                    <input type="file" accept=".json,application/json,text/plain" ref={fileInputRef} onChange={handleRestore} className="hidden" />
+
+                    <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full">
+                      <button onClick={handleBackup} className="flex-1 flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-white/10 border border-white/30 text-white hover:bg-white/20 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner shrink-0"><Download className="w-4.5 h-4.5 opacity-80 shrink-0" strokeWidth={2}/> Backup JSON</button>
+                      <button onClick={() => fileInputRef.current?.click()} disabled={isRestoring} className="flex-1 flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-white/10 border border-white/30 text-white hover:bg-white/20 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner disabled:opacity-50 shrink-0">
+                        {isRestoring ? <Loader2 className="w-4.5 h-4.5 animate-spin opacity-80 shrink-0" strokeWidth={2} /> : <Upload className="w-4.5 h-4.5 opacity-80 shrink-0" strokeWidth={2} />} {isRestoring ? 'Restoring...' : 'Restore JSON'}
+                      </button>
+                      <input type="file" accept=".json,application/json,text/plain" ref={fileInputRef} onChange={handleRestore} className="hidden" />
+                    </div>
                   </div>
                 </div>
               </div>
