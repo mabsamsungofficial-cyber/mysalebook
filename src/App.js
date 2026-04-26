@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Users, LayoutDashboard, Settings, Loader2, AlertCircle, Smartphone, ChevronRight, ArrowLeft, Plus, Trash2, AlertTriangle, Calendar, ScanLine, Tag, X, Check, Menu, HardDrive, RefreshCw, Eye, EyeOff, Edit2, ChevronDown, ChevronUp, Download, Upload, Database, Save, FileDown, Watch, Target, Lock, Unlock } from 'lucide-react';
+import { Search, Users, LayoutDashboard, Settings, Loader2, AlertCircle, Smartphone, ChevronRight, ArrowLeft, Plus, Trash2, AlertTriangle, Calendar, ScanLine, Tag, X, Check, Menu, HardDrive, RefreshCw, Eye, EyeOff, Edit2, ChevronDown, ChevronUp, Download, Upload, Database, Save, FileDown, Watch, Target, Lock, Unlock, BarChart3, List } from 'lucide-react';
 
 // ==========================================
 // 1. CONSTANTS, DEFAULTS & HELPERS
@@ -73,6 +73,30 @@ const getDPNumber = (dpString) => {
   return parseInt(String(dpString).replace(/[^0-9]/g, ''), 10) || 0;
 };
 
+// HELPER: Device Category Detect karne ke liye
+const getDeviceCategory = (model) => {
+  if (!model) return 'smartphone';
+  const upperName = (model.modelName || '').toUpperCase();
+  const upperCode = (model.modelCode || '').toUpperCase();
+  
+  const isWearableTab = model.seriesGid === '596867009';
+  const isWearableKeyword = upperName.includes('WATCH') || upperCode.includes('WATCH') || upperName.includes('BUDS') || upperCode.includes('BUDS') || upperName.includes('RING') || upperCode.includes('RING');
+  if (isWearableTab || isWearableKeyword) return 'wearable';
+
+  const isTabTab = model.seriesGid === '255331010';
+  const isTabKeyword = upperName.includes('TAB ') || upperCode.includes('TAB ');
+  if (isTabTab || isTabKeyword) return 'tablet';
+
+  return 'smartphone';
+};
+
+const formatMonthLabel = (monthKey) => {
+  if (!monthKey) return '';
+  const [year, month] = monthKey.split('-');
+  const date = new Date(year, parseInt(month) - 1);
+  return date.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+};
+
 // ==========================================
 // 2. MAIN COMPONENT
 // ==========================================
@@ -91,6 +115,10 @@ export default function App() {
   const [backupDataToRestore, setBackupDataToRestore] = useState(null); 
   const [showTargetModal, setShowTargetModal] = useState(false);
   
+  // MONTH FILTER OR HISTORY VIEW TYPE KE LIYE
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey());
+  const [historyViewMode, setHistoryViewMode] = useState('date'); // 'date' ya 'model'
+
   const [allModels, setAllModels] = useState([]); 
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState(null);
@@ -131,9 +159,8 @@ export default function App() {
   const [saleModelQuery, setSaleModelQuery] = useState('');
   const [selectedSaleModel, setSelectedSaleModel] = useState(null);
 
-  const currentMonthKey = getCurrentMonthKey();
   const [targetForm, setTargetForm] = useState({ 
-    month: currentMonthKey, volume: '', value: '', gate: '', gateBasis: 'volume' 
+    month: selectedMonth, volume: '', value: '', gate: '', gateBasis: 'volume' 
   });
   const [isTargetExpanded, setIsTargetExpanded] = useState(false);
 
@@ -150,26 +177,13 @@ export default function App() {
     }
     metaViewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
 
-    // Lock F12 and other Developer Tools shortcuts
     const disableDevTools = (e) => {
-      // Prevent F12
-      if (e.keyCode === 123 || e.key === 'F12') {
-        e.preventDefault();
-      }
-      // Prevent Ctrl+Shift+I / J / C (Inspector/Console)
-      if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
-        e.preventDefault();
-      }
-      // Prevent Ctrl+U (View Source)
-      if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) {
-        e.preventDefault();
-      }
+      if (e.keyCode === 123 || e.key === 'F12') e.preventDefault();
+      if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) e.preventDefault();
+      if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) e.preventDefault();
     };
 
-    // Disable Right Click (Context Menu)
-    const disableContextMenu = (e) => {
-      e.preventDefault();
-    };
+    const disableContextMenu = (e) => e.preventDefault();
 
     window.addEventListener('keydown', disableDevTools);
     window.addEventListener('contextmenu', disableContextMenu);
@@ -270,18 +284,11 @@ export default function App() {
 
   const calculateIncentive = (model) => {
     const dpNumber = getDPNumber(model.dp);
+    const category = getDeviceCategory(model);
+    
+    let activeExceptions = category === 'wearable' ? (incentiveSlabs.wearableExceptions || []) : (category === 'tablet' ? (incentiveSlabs.tabExceptions || []) : (incentiveSlabs.smartphoneExceptions || []));
     const upperName = (model.modelName || '').toUpperCase();
     const upperCode = (model.modelCode || '').toUpperCase();
-
-    const isWearableTab = model.seriesGid === '596867009';
-    const isWearableKeyword = upperName.includes('WATCH') || upperCode.includes('WATCH') || upperName.includes('BUDS') || upperCode.includes('BUDS') || upperName.includes('RING') || upperCode.includes('RING');
-    const isWearable = isWearableTab || isWearableKeyword;
-    
-    const isTabTab = model.seriesGid === '255331010';
-    const isTabKeyword = upperName.includes('TAB ') || upperCode.includes('TAB ');
-    const isTab = !isWearable && (isTabTab || isTabKeyword);
-    
-    let activeExceptions = isWearable ? (incentiveSlabs.wearableExceptions || []) : (isTab ? (incentiveSlabs.tabExceptions || []) : (incentiveSlabs.smartphoneExceptions || []));
     
     for (let exc of activeExceptions) {
       if (!exc.models || String(exc.models).trim() === '') continue;
@@ -290,13 +297,13 @@ export default function App() {
       if (isMatch) return parseInt(exc.amount, 10) || 0; 
     }
 
-    if (isWearable || dpNumber === 0) return 0;
+    if (category === 'wearable' || dpNumber === 0) return 0;
 
-    const slabs = isTab ? incentiveSlabs.tab : incentiveSlabs.smartphone;
+    const slabs = category === 'tablet' ? incentiveSlabs.tab : incentiveSlabs.smartphone;
     const matchedSlab = slabs.find(slab => dpNumber >= slab.min && dpNumber <= slab.max);
     let amount = matchedSlab ? matchedSlab.amount : 0;
 
-    if (!isTab && model.seriesGid === '327181163' && amount > 0) {
+    if (category === 'smartphone' && model.seriesGid === '327181163' && amount > 0) {
       const mfList = (incentiveSlabs.mfExceptions || "").split(',').map(s => s.trim().toUpperCase()).filter(s => s); 
       const is100Percent = mfList.some(exc => upperName.includes(exc) || upperCode.includes(exc));
       if (!is100Percent) amount = Math.round(amount / 2); 
@@ -347,7 +354,6 @@ export default function App() {
   };
   const saveSettingsLocal = () => {
     setIncentiveSlabs(draftSlabs);
-    // FIX: Updated wrong key to ensure data saves perfectly on manual save
     localStorage.setItem('salebook_data_settings', JSON.stringify(draftSlabs));
     showNotification('Settings saved locally!');
   };
@@ -383,15 +389,21 @@ export default function App() {
 
   const saveNewSale = () => {
     if (!selectedSaleModel) return;
+    const category = getDeviceCategory(selectedSaleModel); 
     const saleData = {
       modelName: selectedSaleModel.modelName, modelCode: selectedSaleModel.modelCode, dp: selectedSaleModel.dp,
       dpNumber: getDPNumber(selectedSaleModel.dp), incentive: calculateIncentive(selectedSaleModel),
+      category: category, 
       date: saleForm.date, imei: saleForm.imei, selloutSupport: Number(saleForm.selloutSupport) || 0,
       upgrade: Number(saleForm.upgrade) || 0, timestamp: editingSaleId ? sales.find(s => s.id === editingSaleId)?.timestamp || Date.now() : Date.now()
     };
     let updatedSales = editingSaleId ? sales.map(s => s.id === editingSaleId ? { ...s, ...saleData } : s) : [{ id: Date.now().toString(), ...saleData }, ...sales];
     updatedSales.sort((a, b) => b.timestamp - a.timestamp);
     setSales(updatedSales);
+    
+    const saleMonthKey = saleForm.date.substring(0, 7);
+    setSelectedMonth(saleMonthKey);
+
     setSaleForm({ date: getTodayString(), imei: '', selloutSupport: '', upgrade: '' });
     setSelectedSaleModel(null);
     setSaleModelQuery('');
@@ -426,7 +438,6 @@ export default function App() {
     reader.onload = (event) => {
       try {
         const parsedData = JSON.parse(event.target.result);
-        // Stricter format check for safety
         if (parsedData && Array.isArray(parsedData.sales) && typeof parsedData.settings === 'object') {
           setBackupDataToRestore(parsedData);
         } else {
@@ -443,11 +454,8 @@ export default function App() {
   const confirmRestore = () => {
     if (!backupDataToRestore) return;
     setIsRestoring(true);
-    
-    // Added a slight delay for UI loader & smoother rendering
     setTimeout(() => {
       try {
-        // Safe merge with DEFAULT_SLABS to prevent older backups from crashing the app
         const restoredSettings = {
           ...DEFAULT_SLABS,
           ...backupDataToRestore.settings,
@@ -461,7 +469,6 @@ export default function App() {
         setSales(backupDataToRestore.sales || []);
         
         showNotification(`Restored ${backupDataToRestore.sales.length} sales successfully!`);
-        // Automatically switch to Dashboard to instantly see the restored data
         setActiveBottomTab('dashboard');
       } catch (err) { 
         showNotification("Restore failed."); 
@@ -484,28 +491,34 @@ export default function App() {
     ? allModels.filter(m => m.modelName.toLowerCase().includes(searchQuery.toLowerCase()) || m.modelCode.toLowerCase().includes(searchQuery.toLowerCase()))
     : (activeSeries === 'ALL' ? allModels : allModels.filter(m => m.seriesGid === activeSeries));
 
-  const currentMonthSales = sales.filter(s => {
-    const saleDate = new Date(s.date);
-    const today = new Date();
-    return saleDate.getMonth() === today.getMonth() && saleDate.getFullYear() === today.getFullYear();
-  });
+  // ==========================================
+  // BUSINESS CALCULATIONS (BASED ON SELECTED MONTH)
+  // ==========================================
   
-  // Base Incentive Calculation Only
-  const totalIncThisMonth = currentMonthSales.reduce((sum, sale) => sum + (sale.incentive || 0), 0);
-  
-  const totalSalesThisMonth = currentMonthSales.length;
-  const totalRevThisMonth = currentMonthSales.reduce((sum, sale) => sum + (sale.dpNumber || 0), 0);
+  const getAvailableMonths = () => {
+    const monthSet = new Set(sales.map(s => s.date.substring(0, 7)));
+    monthSet.add(getCurrentMonthKey()); 
+    return Array.from(monthSet).sort().reverse(); 
+  };
+  const availableMonths = getAvailableMonths();
 
-  const groupedSales = sales.reduce((acc, sale) => {
-    if (!acc[sale.date]) acc[sale.date] = { date: sale.date, sales: [], volume: 0, value: 0 };
-    acc[sale.date].sales.push(sale);
-    acc[sale.date].volume += 1;
-    acc[sale.date].value += sale.dpNumber || 0;
-    return acc;
-  }, {});
-  const sortedDates = Object.keys(groupedSales).sort((a, b) => new Date(b) - new Date(a));
+  const filteredSalesByMonth = sales.filter(s => s.date.startsWith(selectedMonth));
 
-  const currentMonthTarget = incentiveSlabs.targets?.[currentMonthKey] || null;
+  const getSaleCategory = (sale) => sale.category || getDeviceCategory(sale);
+
+  const totalIncThisMonth = filteredSalesByMonth.reduce((sum, sale) => sum + (sale.incentive || 0), 0);
+  const totalSalesThisMonth = filteredSalesByMonth.length;
+  const totalRevThisMonth = filteredSalesByMonth.reduce((sum, sale) => sum + (sale.dpNumber || 0), 0);
+
+  const smartphoneIncThisMonth = filteredSalesByMonth.filter(s => getSaleCategory(s) === 'smartphone').reduce((sum, s) => sum + (s.incentive || 0), 0);
+  const tabletIncThisMonth = filteredSalesByMonth.filter(s => getSaleCategory(s) === 'tablet').reduce((sum, s) => sum + (s.incentive || 0), 0);
+  const wearableIncThisMonth = filteredSalesByMonth.filter(s => getSaleCategory(s) === 'wearable').reduce((sum, s) => sum + (s.incentive || 0), 0);
+
+  const smartphoneSalesThisMonth = filteredSalesByMonth.filter(sale => getSaleCategory(sale) === 'smartphone');
+  const smartphoneVolThisMonth = smartphoneSalesThisMonth.length;
+  const smartphoneRevThisMonth = smartphoneSalesThisMonth.reduce((sum, sale) => sum + (sale.dpNumber || 0), 0);
+
+  const currentMonthTarget = incentiveSlabs.targets?.[selectedMonth] || null;
   let isGateMet = true;
   let volAchievedPercent = 0; let valAchievedPercent = 0;
   let volBalanceToGate = 0; let valBalanceToGate = 0;
@@ -513,16 +526,16 @@ export default function App() {
 
   if (currentMonthTarget) {
     if (currentMonthTarget.volume > 0) {
-      volAchievedPercent = Math.min(100, Math.round((totalSalesThisMonth / currentMonthTarget.volume) * 100));
+      volAchievedPercent = Math.min(100, Math.round((smartphoneVolThisMonth / currentMonthTarget.volume) * 100));
       const volTargetGateUnits = Math.ceil(currentMonthTarget.volume * (currentMonthTarget.gate / 100));
-      volBalanceToGate = Math.max(0, volTargetGateUnits - totalSalesThisMonth);
-      volBalanceTo100 = Math.max(0, currentMonthTarget.volume - totalSalesThisMonth);
+      volBalanceToGate = Math.max(0, volTargetGateUnits - smartphoneVolThisMonth);
+      volBalanceTo100 = Math.max(0, currentMonthTarget.volume - smartphoneVolThisMonth);
     }
     if (currentMonthTarget.value > 0) {
-      valAchievedPercent = Math.min(100, Math.round((totalRevThisMonth / currentMonthTarget.value) * 100));
+      valAchievedPercent = Math.min(100, Math.round((smartphoneRevThisMonth / currentMonthTarget.value) * 100));
       const valTargetGateAmt = Math.ceil(currentMonthTarget.value * (currentMonthTarget.gate / 100));
-      valBalanceToGate = Math.max(0, valTargetGateAmt - totalRevThisMonth);
-      valBalanceTo100 = Math.max(0, currentMonthTarget.value - totalRevThisMonth);
+      valBalanceToGate = Math.max(0, valTargetGateAmt - smartphoneRevThisMonth);
+      valBalanceTo100 = Math.max(0, currentMonthTarget.value - smartphoneRevThisMonth);
     }
     if (currentMonthTarget.gate > 0) {
       const volMet = currentMonthTarget.volume > 0 ? volAchievedPercent >= currentMonthTarget.gate : false;
@@ -564,9 +577,27 @@ export default function App() {
     return '';
   };
 
+  const groupedSales = filteredSalesByMonth.reduce((acc, sale) => {
+    if (!acc[sale.date]) acc[sale.date] = { date: sale.date, sales: [], volume: 0, value: 0 };
+    acc[sale.date].sales.push(sale);
+    acc[sale.date].volume += 1;
+    acc[sale.date].value += sale.dpNumber || 0;
+    return acc;
+  }, {});
+  const sortedDates = Object.keys(groupedSales).sort((a, b) => new Date(b) - new Date(a));
+
+  const groupedByModel = filteredSalesByMonth.reduce((acc, sale) => {
+    if(!acc[sale.modelName]) {
+      acc[sale.modelName] = { count: 0, incentive: 0, modelCode: sale.modelCode, dp: sale.dpNumber, category: getSaleCategory(sale) };
+    }
+    acc[sale.modelName].count += 1;
+    acc[sale.modelName].incentive += (sale.incentive || 0);
+    return acc;
+  }, {});
+  const sortedModels = Object.entries(groupedByModel).sort((a, b) => b[1].count - a[1].count);
+
   // ==========================================
   // LIQUID GLASS + DARK MESH UI THEME 
-  // (100% Mobile Safe with Fixed Padding & Overflows)
   // ==========================================
   
   const glassCard = "bg-white/10 backdrop-blur-2xl border border-white/20 rounded-[28px] shadow-[0_8px_32px_rgba(0,0,0,0.4)] w-full min-w-0";
@@ -577,7 +608,7 @@ export default function App() {
   return (
     <div className="flex flex-col h-[100dvh] w-full max-w-[100vw] bg-[#050505] text-white/90 font-sans selection:bg-white/30 relative overflow-hidden">
       
-      {/* STRICT BACKGROUND WRAPPER TO PREVENT OVERFLOW LEAK */}
+      {/* STRICT BACKGROUND WRAPPER */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
         <div className="absolute inset-0" style={{
           backgroundColor: '#0a0a0a',
@@ -589,7 +620,6 @@ export default function App() {
         <div className="absolute bottom-1/4 right-[-20%] w-[300px] h-[300px] sm:w-[500px] sm:h-[500px] bg-blue-600/20 rounded-full blur-[100px] mix-blend-screen"></div>
       </div>
 
-      {/* ALL TAB CONTENT MOVED INSIDE THIS z-10 WRAPPER */}
       <div className="flex flex-col h-full w-full relative z-10">
         {/* TAB 1: DASHBOARD */}
         {activeBottomTab === 'dashboard' && !isAddingSale && (
@@ -597,20 +627,31 @@ export default function App() {
             <div className="pt-6 pb-4 px-4 sm:px-5 shrink-0">
               <header className="flex items-center justify-between mb-4 sm:mb-5">
                 <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight text-white drop-shadow-sm truncate pr-2">SaleBook</h1>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="bg-white/10 backdrop-blur-md text-white/80 text-[9px] sm:text-[10px] font-bold px-3 py-1.5 rounded-full uppercase tracking-widest flex items-center border border-white/20 shrink-0">
-                    <HardDrive className="w-3 h-3 mr-1.5 opacity-80 shrink-0" strokeWidth={2} /> Local
-                  </span>
+                
+                {/* MONTH FILTER DROPDOWN */}
+                <div className="relative flex items-center shrink-0">
+                  <select 
+                    value={selectedMonth} 
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="appearance-none bg-white/10 backdrop-blur-md text-white font-bold text-[11px] sm:text-[12px] px-3.5 py-2 pr-8 rounded-full border border-white/20 focus:outline-none focus:bg-white/20 transition-colors shadow-sm cursor-pointer"
+                  >
+                    {availableMonths.map(monthStr => (
+                      <option key={monthStr} value={monthStr} className="bg-[#111] text-white py-1">
+                        {formatMonthLabel(monthStr)}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-white/70 absolute right-3 pointer-events-none" strokeWidth={2.5}/>
                 </div>
               </header>
 
               <div className="grid grid-cols-3 gap-2 sm:gap-3 w-full">
                 <div className={`${glassCard} p-3 sm:p-4.5 flex flex-col items-center justify-center relative overflow-hidden text-center`}>
-                  <span className="text-[9px] sm:text-[10px] font-semibold text-white/60 uppercase tracking-widest mb-1 sm:mb-1.5 w-full truncate">Value</span>
+                  <span className="text-[9px] sm:text-[10px] font-semibold text-white/60 uppercase tracking-widest mb-1 sm:mb-1.5 w-full truncate">Total Value</span>
                   <span className="text-[14px] sm:text-[16px] font-bold drop-shadow-md w-full truncate">{formatMoney(totalRevThisMonth)}</span>
                 </div>
                 <div className={`${glassCard} p-3 sm:p-4.5 flex flex-col items-center justify-center relative overflow-hidden text-center`}>
-                  <span className="text-[9px] sm:text-[10px] font-semibold text-white/60 uppercase tracking-widest mb-1 sm:mb-1.5 w-full truncate">Volume</span>
+                  <span className="text-[9px] sm:text-[10px] font-semibold text-white/60 uppercase tracking-widest mb-1 sm:mb-1.5 w-full truncate">Total Vol</span>
                   <span className="text-[14px] sm:text-[16px] font-bold drop-shadow-md w-full truncate">{totalSalesThisMonth} <span className="text-[9px] sm:text-[10px] font-medium text-white/60">U</span></span>
                 </div>
                 <div className={`${glassCard} p-3 sm:p-4.5 flex flex-col items-center justify-center transition-all duration-500 relative overflow-hidden text-center`}>
@@ -626,6 +667,32 @@ export default function App() {
                   </span>
                 </div>
               </div>
+
+              {/* CATEGORY BREAKDOWN ROW */}
+              <div className={`grid grid-cols-3 gap-2 sm:gap-3 w-full transition-all duration-500 ease-in-out overflow-hidden ${showIncentive ? 'max-h-20 opacity-100 mt-2 sm:mt-3' : 'max-h-0 opacity-0 mt-0'}`}>
+                <div className={`${glassCardInner} p-2.5 sm:p-3 flex items-center justify-center gap-2`}>
+                  <Smartphone className="w-3.5 h-3.5 text-white/60 shrink-0" />
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[7.5px] sm:text-[8px] uppercase tracking-widest text-white/50 font-bold truncate">Phone</span>
+                    <span className={`text-[11px] sm:text-[12.5px] font-bold ${!isGateMet ? 'text-white/40' : 'text-white'}`}>{formatMoney(smartphoneIncThisMonth)}</span>
+                  </div>
+                </div>
+                <div className={`${glassCardInner} p-2.5 sm:p-3 flex items-center justify-center gap-2`}>
+                  <LayoutDashboard className="w-3.5 h-3.5 text-white/60 shrink-0" />
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[7.5px] sm:text-[8px] uppercase tracking-widest text-white/50 font-bold truncate">Tablet</span>
+                    <span className="text-[11px] sm:text-[12.5px] font-bold text-white">{formatMoney(tabletIncThisMonth)}</span>
+                  </div>
+                </div>
+                <div className={`${glassCardInner} p-2.5 sm:p-3 flex items-center justify-center gap-2`}>
+                  <Watch className="w-3.5 h-3.5 text-white/60 shrink-0" />
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[7.5px] sm:text-[8px] uppercase tracking-widest text-white/50 font-bold truncate">Wearable</span>
+                    <span className="text-[11px] sm:text-[12.5px] font-bold text-white">{formatMoney(wearableIncThisMonth)}</span>
+                  </div>
+                </div>
+              </div>
+
             </div>
 
             <main className="flex-1 overflow-y-auto pb-32 px-4 sm:px-5 hide-scrollbar w-full">
@@ -634,7 +701,7 @@ export default function App() {
                 <div className="p-4 sm:p-5 cursor-pointer hover:bg-white/5 transition-colors" onClick={() => setIsTargetExpanded(!isTargetExpanded)}>
                   <div className="flex items-center justify-between mb-2 sm:mb-3">
                     <h3 className="text-[11px] sm:text-[13px] font-bold uppercase tracking-widest flex items-center drop-shadow-sm truncate pr-2">
-                      <Target className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-2 text-white/80 shrink-0" strokeWidth={2}/> Monthly Target
+                      <Target className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-2 text-cyan-400 shrink-0" strokeWidth={2}/> Smartphone Target
                     </h3>
                     <div className={`p-1.5 rounded-full bg-white/10 border border-white/20 transition-transform duration-300 shrink-0 ${isTargetExpanded ? 'rotate-180' : ''}`}>
                       <ChevronDown className="w-3.5 h-3.5 text-white/80" strokeWidth={2} />
@@ -642,7 +709,7 @@ export default function App() {
                   </div>
 
                   {!currentMonthTarget ? (
-                    <p className="text-[11px] sm:text-[12px] text-white/60 mt-2 sm:mt-3 font-medium truncate">Target not set. Tap to configure.</p>
+                    <p className="text-[11px] sm:text-[12px] text-white/60 mt-2 sm:mt-3 font-medium truncate">Target not set for this month.</p>
                   ) : (
                     <div className={`transition-all duration-300 ease-in-out overflow-hidden ${isTargetExpanded ? 'max-h-0 opacity-0' : 'max-h-20 opacity-100 mt-3 sm:mt-4'}`}>
                       <div className="flex flex-col gap-2.5 sm:gap-3.5">
@@ -661,21 +728,21 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Expanded Details */}
+                {/* Expanded Target Details */}
                 <div className={`transition-all duration-500 ease-in-out overflow-hidden ${isTargetExpanded ? 'max-h-[600px] opacity-100 border-t border-white/10 bg-black/20' : 'max-h-0 opacity-0'}`}>
                   <div className="p-4 sm:p-5 flex flex-col gap-4">
                     {!currentMonthTarget ? (
                       <div className="bg-black/20 border border-white/10 border-dashed rounded-[16px] sm:rounded-[20px] p-5 sm:p-6 text-center flex flex-col items-center justify-center">
                         <p className="text-[12px] sm:text-[13px] text-white/70 mb-3 sm:mb-4 font-medium">Target for this month is not set.</p>
-                        <button onClick={() => openTargetEditor(currentMonthKey)} className="text-[12px] sm:text-[13px] font-bold bg-white text-black px-5 sm:px-6 py-2.5 rounded-full hover:bg-white/90 transition-colors shadow-lg shrink-0">Set Target</button>
+                        <button onClick={() => openTargetEditor(selectedMonth)} className="text-[12px] sm:text-[13px] font-bold bg-white text-black px-5 sm:px-6 py-2.5 rounded-full hover:bg-white/90 transition-colors shadow-lg shrink-0">Set Target</button>
                       </div>
                     ) : (
                       <div className="flex flex-col gap-3 sm:gap-4 w-full">
                         {currentMonthTarget.volume > 0 && (
                           <div className={`${glassCardInner} p-4 sm:p-4.5 flex flex-col w-full overflow-hidden`}>
                             <div className="flex justify-between items-center text-[10px] sm:text-[11px] font-bold mb-2.5 sm:mb-3 drop-shadow-sm w-full">
-                              <span className="uppercase tracking-widest flex items-center shrink-0 pr-2"><Tag className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1.5 sm:mr-2 opacity-90 shrink-0" strokeWidth={2}/> Volume</span>
-                              <span className="truncate min-w-0">{totalSalesThisMonth} / {currentMonthTarget.volume} <span className="text-white/60 ml-0.5 sm:ml-1 font-medium">({volAchievedPercent}%)</span></span>
+                              <span className="uppercase tracking-widest flex items-center shrink-0 pr-2"><Tag className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1.5 sm:mr-2 opacity-90 shrink-0" strokeWidth={2}/> SP Volume</span>
+                              <span className="truncate min-w-0">{smartphoneVolThisMonth} / {currentMonthTarget.volume} <span className="text-white/60 ml-0.5 sm:ml-1 font-medium">({volAchievedPercent}%)</span></span>
                             </div>
                             <div className="h-[3px] sm:h-[4px] w-full bg-black/30 rounded-full overflow-hidden mb-2.5 sm:mb-3 shrink-0 shadow-inner">
                               <div className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full transition-all duration-700 ease-out shadow-[0_0_8px_rgba(34,211,238,0.6)]" style={{ width: `${volAchievedPercent}%` }}></div>
@@ -690,8 +757,8 @@ export default function App() {
                         {currentMonthTarget.value > 0 && (
                           <div className={`${glassCardInner} p-4 sm:p-4.5 flex flex-col w-full overflow-hidden`}>
                             <div className="flex justify-between items-center text-[10px] sm:text-[11px] font-bold mb-2.5 sm:mb-3 drop-shadow-sm w-full">
-                              <span className="uppercase tracking-widest flex items-center shrink-0 pr-2"><Smartphone className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1.5 sm:mr-2 opacity-90 shrink-0" strokeWidth={2}/> Value</span>
-                              <span className="truncate min-w-0">{formatMoney(totalRevThisMonth)} / {formatMoney(currentMonthTarget.value)} <span className="text-white/60 ml-0.5 sm:ml-1 font-medium">({valAchievedPercent}%)</span></span>
+                              <span className="uppercase tracking-widest flex items-center shrink-0 pr-2"><Smartphone className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1.5 sm:mr-2 opacity-90 shrink-0" strokeWidth={2}/> SP Value</span>
+                              <span className="truncate min-w-0">{formatMoney(smartphoneRevThisMonth)} / {formatMoney(currentMonthTarget.value)} <span className="text-white/60 ml-0.5 sm:ml-1 font-medium">({valAchievedPercent}%)</span></span>
                             </div>
                             <div className="h-[3px] sm:h-[4px] w-full bg-black/30 rounded-full overflow-hidden mb-2.5 sm:mb-3 shrink-0 shadow-inner">
                               <div className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full transition-all duration-700 ease-out shadow-[0_0_8px_rgba(34,211,238,0.6)]" style={{ width: `${valAchievedPercent}%` }}></div>
@@ -721,7 +788,7 @@ export default function App() {
                           ) : (
                             <div className="flex-1 min-w-0"></div>
                           )}
-                          <button onClick={(e) => { e.stopPropagation(); openTargetEditor(currentMonthKey); }} className="text-[10px] sm:text-[11px] font-bold bg-white/10 border border-white/20 hover:bg-white/20 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm shrink-0">
+                          <button onClick={(e) => { e.stopPropagation(); openTargetEditor(selectedMonth); }} className="text-[10px] sm:text-[11px] font-bold bg-white/10 border border-white/20 hover:bg-white/20 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm shrink-0">
                             <Edit2 className="w-3 h-3 shrink-0" strokeWidth={2}/> Edit
                           </button>
                         </div>
@@ -731,18 +798,38 @@ export default function App() {
                 </div>
               </div>
 
-              <h2 className="text-[10px] sm:text-[11px] font-bold text-white/70 uppercase tracking-widest mb-3 sm:mb-4 px-1 sm:px-2 drop-shadow-sm">
-                Sales History
-              </h2>
+              {/* TOGGLE HEADER FOR SALES HISTORY */}
+              <div className="flex items-center justify-between mb-3 sm:mb-4 px-1 sm:px-2 w-full">
+                <h2 className="text-[10px] sm:text-[11px] font-bold text-white/70 uppercase tracking-widest drop-shadow-sm">
+                  Sales History
+                </h2>
+                
+                <div className="flex items-center bg-black/30 p-1 rounded-full border border-white/10">
+                  <button 
+                    onClick={() => setHistoryViewMode('date')} 
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] sm:text-[10.5px] font-bold transition-colors ${historyViewMode === 'date' ? 'bg-white/20 text-white shadow-sm' : 'text-white/50 hover:text-white/80'}`}
+                  >
+                    <List className="w-3 h-3" /> Date
+                  </button>
+                  <button 
+                    onClick={() => setHistoryViewMode('model')} 
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] sm:text-[10.5px] font-bold transition-colors ${historyViewMode === 'model' ? 'bg-white/20 text-white shadow-sm' : 'text-white/50 hover:text-white/80'}`}
+                  >
+                    <BarChart3 className="w-3 h-3" /> Model
+                  </button>
+                </div>
+              </div>
               
-              {sales.length === 0 ? (
+              {filteredSalesByMonth.length === 0 ? (
                 <div className={`flex flex-col items-center justify-center py-10 sm:py-12 text-white/50 ${glassCard}`}>
                   <Tag className="w-8 h-8 sm:w-10 sm:h-10 mb-3 sm:mb-4 opacity-40 shrink-0" strokeWidth={1.5} />
-                  <p className="text-[12px] sm:text-[13px] font-medium">No sales recorded yet.</p>
+                  <p className="text-[12px] sm:text-[13px] font-medium">No sales recorded for this month.</p>
                 </div>
               ) : (
                 <div className="flex flex-col gap-3 sm:gap-4 w-full">
-                  {sortedDates.map(dateKey => {
+                  
+                  {/* VIEW MODE: DATE */}
+                  {historyViewMode === 'date' && sortedDates.map(dateKey => {
                     const group = groupedSales[dateKey];
                     const formattedDate = new Date(dateKey).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
@@ -780,8 +867,8 @@ export default function App() {
                                     </div>
                                     <div className="flex flex-col items-end shrink-0">
                                       <span className="text-[8.5px] sm:text-[9px] font-bold text-white/50 uppercase tracking-widest mb-1 truncate">Incentive</span>
-                                      <span className={`text-[13px] sm:text-[14px] font-bold flex items-center shrink-0 ${!isGateMet ? 'text-white/40' : 'text-white drop-shadow-md'}`}>
-                                        {!isGateMet && <Lock className="w-3 h-3 opacity-60 strokeWidth={2} shrink-0" />} +₹{sale.incentive}
+                                      <span className={`text-[13px] sm:text-[14px] font-bold flex items-center shrink-0 ${getSaleCategory(sale) === 'smartphone' && !isGateMet ? 'text-white/40' : 'text-white drop-shadow-md'}`}>
+                                        {getSaleCategory(sale) === 'smartphone' && !isGateMet && <Lock className="w-3 h-3 opacity-60 strokeWidth={2} shrink-0 mr-1" />} +₹{sale.incentive}
                                       </span>
                                     </div>
                                   </div>
@@ -817,6 +904,41 @@ export default function App() {
                       </div>
                     );
                   })}
+
+                  {/* VIEW MODE: MODEL */}
+                  {historyViewMode === 'model' && (
+                    <div className={`${glassCard} overflow-hidden w-full flex flex-col pb-2`}>
+                      <div className="flex items-center justify-between bg-white/5 px-4 sm:px-5 py-3 sm:py-4 border-b border-white/10 w-full mb-2">
+                        <span className="text-[12px] sm:text-[13px] font-bold text-white/90 truncate pr-2 drop-shadow-sm">Models Summary</span>
+                        <span className="text-[11px] sm:text-[12px] font-bold text-white/70">{sortedModels.length} Models</span>
+                      </div>
+                      <div className="flex flex-col w-full">
+                        {sortedModels.map(([modelName, data], idx) => (
+                          <div key={modelName} className="flex items-center justify-between px-4 sm:px-5 py-3 hover:bg-white/5 transition-colors w-full gap-3">
+                            <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/10 border border-white/20 text-white flex items-center justify-center shrink-0 text-[11px] sm:text-[12px] font-bold">
+                                {idx + 1}
+                              </div>
+                              <div className="flex flex-col min-w-0">
+                                <span className="text-[13px] sm:text-[14px] font-bold text-white truncate drop-shadow-sm">{modelName}</span>
+                                {showIncentive && data.incentive > 0 && (
+                                  <span className="text-[9.5px] sm:text-[10px] font-bold text-cyan-400 mt-0.5 truncate">
+                                    Inc: +₹{data.incentive}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center shrink-0">
+                              <span className="text-[14px] sm:text-[15px] font-extrabold text-white bg-white/10 px-3 py-1 rounded-lg border border-white/20 shadow-inner">
+                                {data.count}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                 </div>
               )}
             </main>
@@ -842,21 +964,20 @@ export default function App() {
               
               <div className="flex flex-col gap-4 sm:gap-5 mb-6 sm:mb-8 w-full shrink-0 overflow-y-auto hide-scrollbar max-h-[60vh] sm:max-h-[70vh]">
                 <div className="flex flex-col w-full">
-                  <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-1.5 sm:mb-2">Month</label>
+                  <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-1.5 sm:mb-2">Target Month</label>
                   <input type="month" value={targetForm.month} onChange={(e) => setTargetForm({...targetForm, month: e.target.value})} className={glassInput + ' [color-scheme:dark] shrink-0'} />
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:gap-4 w-full">
                   <div className="flex flex-col w-full">
-                    <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-1.5 sm:mb-2 flex items-center truncate"><Tag className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1.5 opacity-80 shrink-0"/> Vol (Units)</label>
+                    <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-1.5 sm:mb-2 flex items-center truncate"><Tag className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1.5 opacity-80 shrink-0"/> SP Vol (Units)</label>
                     <input type="number" placeholder="0" value={targetForm.volume} onChange={(e) => setTargetForm({...targetForm, volume: e.target.value})} className={glassInput} />
                   </div>
                   <div className="flex flex-col w-full">
-                    <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-1.5 sm:mb-2 flex items-center truncate"><Smartphone className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1.5 opacity-80 shrink-0"/> Value (₹)</label>
+                    <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-1.5 sm:mb-2 flex items-center truncate"><Smartphone className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1.5 opacity-80 shrink-0"/> SP Value (₹)</label>
                     <input type="number" placeholder="0" value={targetForm.value} onChange={(e) => setTargetForm({...targetForm, value: e.target.value})} className={glassInput} />
                   </div>
                 </div>
                 
-                {/* IMPROVED PAYOUT GATE RULE BOX */}
                 <div className="bg-gradient-to-br from-white/5 to-white/10 border border-white/20 rounded-[20px] p-4 sm:p-5 w-full shrink-0 relative overflow-hidden shadow-inner mt-1">
                   <div className="absolute -right-6 -top-6 w-20 h-20 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none"></div>
                   
@@ -945,7 +1066,9 @@ export default function App() {
             </header>
 
             <main className="flex-1 overflow-y-auto p-4 sm:p-5 pb-10 hide-scrollbar w-full flex flex-col gap-4 sm:gap-5">
-              <div className={`${glassCard} p-5 sm:p-6 flex flex-col gap-4 sm:gap-5 w-full`}>
+              
+              {/* CARD 1: MODEL & DATE (Highest z-index so dropdown stays on top) */}
+              <div className={`${glassCard} p-5 sm:p-6 flex flex-col gap-4 sm:gap-5 w-full relative z-[60]`}>
                 <div className="flex flex-col w-full">
                   <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 flex items-center truncate"><Calendar className="w-3.5 h-3.5 mr-1.5 opacity-80 shrink-0" strokeWidth={2}/> Sale Date</label>
                   <input type="date" value={saleForm.date} onChange={(e) => setSaleForm({...saleForm, date: e.target.value})} className={`${glassInput} [color-scheme:dark] shrink-0`} />
@@ -968,7 +1091,7 @@ export default function App() {
                         <input type="text" placeholder="Search model..." value={saleModelQuery} onChange={(e) => setSaleModelQuery(e.target.value)} className={`${glassInput} pl-11 sm:pl-12`} />
                       </div>
                       {saleModelQuery.trim() !== '' && (
-                        <div className="mt-2 bg-black border border-white/20 rounded-[20px] sm:rounded-[24px] max-h-[200px] overflow-y-auto shadow-[0_12px_40px_rgba(0,0,0,1)] absolute w-full z-[100] top-full hide-scrollbar flex flex-col">
+                        <div className="mt-2 bg-[#1a1a1a] border border-white/20 rounded-[20px] sm:rounded-[24px] max-h-[200px] overflow-y-auto shadow-[0_20px_50px_rgba(0,0,0,1)] absolute w-full z-[100] top-full hide-scrollbar flex flex-col">
                           {allModels.filter(m => m.modelName.toLowerCase().includes(saleModelQuery.toLowerCase()) || m.modelCode.toLowerCase().includes(saleModelQuery.toLowerCase())).slice(0, 15).map(m => (
                             <div key={m.id} onClick={() => setSelectedSaleModel(m)} className="flex items-center justify-between p-4 sm:p-4.5 border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors w-full gap-2">
                               <div className="flex flex-col min-w-0 flex-1"><span className="text-[13px] sm:text-[14px] font-bold text-white mb-1 truncate drop-shadow-sm">{m.modelName}</span><span className="text-[9px] sm:text-[10px] font-medium text-white/60 truncate">{m.modelCode}</span></div>
@@ -982,7 +1105,8 @@ export default function App() {
                 </div>
               </div>
 
-              <div className={`${glassCard} p-5 sm:p-6 transition-all duration-300 w-full ${!selectedSaleModel ? 'opacity-40 pointer-events-none' : ''}`}>
+              {/* CARD 2: PRICE & INC (Lower z-index) */}
+              <div className={`${glassCard} p-5 sm:p-6 transition-all duration-300 w-full relative z-[50] ${!selectedSaleModel ? 'opacity-40 pointer-events-none' : ''}`}>
                 <div className="grid grid-cols-2 gap-4 sm:gap-5 w-full">
                   <div className="flex flex-col w-full">
                     <span className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 truncate">Dealer Price</span>
@@ -999,7 +1123,8 @@ export default function App() {
                 </div>
               </div>
 
-              <div className={`${glassCard} p-5 sm:p-6 w-full flex flex-col gap-5 sm:gap-6`}>
+              {/* CARD 3: IMEI & EXTRAS (Lowest z-index) */}
+              <div className={`${glassCard} p-5 sm:p-6 w-full flex flex-col gap-5 sm:gap-6 relative z-[40]`}>
                 <div className="flex flex-col w-full">
                   <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 flex items-center truncate"><ScanLine className="w-3.5 h-3.5 mr-2 opacity-80 shrink-0" strokeWidth={2}/> IMEI Number</label>
                   <input type="text" placeholder="Enter or scan IMEI" value={saleForm.imei} onChange={(e) => setSaleForm({...saleForm, imei: e.target.value})} className={`${glassInput} uppercase`} />
@@ -1143,7 +1268,6 @@ export default function App() {
                     <button onClick={() => fileInputRef.current?.click()} disabled={isRestoring} className="flex-1 flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-white/10 border border-white/30 text-white hover:bg-white/20 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner disabled:opacity-50 shrink-0">
                       {isRestoring ? <Loader2 className="w-4.5 h-4.5 animate-spin opacity-80 shrink-0" strokeWidth={2} /> : <Upload className="w-4.5 h-4.5 opacity-80 shrink-0" strokeWidth={2} />} {isRestoring ? 'Restoring...' : 'Restore'}
                     </button>
-                    {/* Fixed accept types to support all Android file pickers */}
                     <input type="file" accept=".json,application/json,text/plain" ref={fileInputRef} onChange={handleRestore} className="hidden" />
                   </div>
                 </div>
