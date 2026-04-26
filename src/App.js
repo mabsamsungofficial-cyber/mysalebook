@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Users, LayoutDashboard, Settings, Loader2, AlertCircle, Smartphone, ChevronRight, ArrowLeft, Plus, Trash2, AlertTriangle, Calendar, ScanLine, Tag, X, Check, Menu, HardDrive, RefreshCw, Eye, EyeOff, Edit2, ChevronDown, ChevronUp, Download, Upload, Database, Save, FileDown, Watch, Target, Lock, Unlock, BarChart3, List } from 'lucide-react';
+import { Search, Users, LayoutDashboard, Settings, Loader2, AlertCircle, Smartphone, ChevronRight, ArrowLeft, Plus, Trash2, AlertTriangle, Calendar, ScanLine, Tag, X, Check, Menu, HardDrive, RefreshCw, Eye, EyeOff, Edit2, ChevronDown, ChevronUp, Download, Upload, Database, Save, FileDown, Watch, Target, Lock, Unlock, BarChart3, List, FileSpreadsheet, RotateCcw } from 'lucide-react';
 
 // ==========================================
 // 1. CONSTANTS, DEFAULTS & HELPERS
@@ -115,6 +115,10 @@ export default function App() {
   const [backupDataToRestore, setBackupDataToRestore] = useState(null); 
   const [showTargetModal, setShowTargetModal] = useState(false);
   
+  // EXPORT & RESET MODAL STATES
+  const [exportConfig, setExportConfig] = useState({ isOpen: false, exportAll: false });
+  const [showResetModal, setShowResetModal] = useState(false);
+
   // MONTH FILTER OR HISTORY VIEW TYPE KE LIYE
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey());
   const [historyViewMode, setHistoryViewMode] = useState('date'); // 'date' ya 'model'
@@ -311,6 +315,7 @@ export default function App() {
     return amount;
   };
 
+  // EXPORT MODELS DATA
   const exportModelsToCSV = () => {
     const dataToExport = searchQuery.trim() !== ''
       ? allModels.filter(m => m.modelName.toLowerCase().includes(searchQuery.toLowerCase()) || m.modelCode.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -333,35 +338,67 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  // EXPORT SALES TO CSV
-  const exportSalesData = (exportAll = false) => {
-    const dataToExport = exportAll ? sales : filteredSalesByMonth;
+  // EXPORT SALES DATA (RAW OR SUMMARY)
+  const executeSalesExport = (type) => {
+    const dataToExport = exportConfig.exportAll ? sales : filteredSalesByMonth;
 
     if (dataToExport.length === 0) {
       showNotification("No sales data to export!");
+      setExportConfig({ isOpen: false, exportAll: false });
       return;
     }
 
-    let csvContent = "Date,Month,Category,Model Name,Price,Incentive,IMEI,Sellout,Upgrade\n";
+    let csvContent = "";
 
-    dataToExport.forEach(sale => {
-      const month = sale.date.substring(0, 7); // Format YYYY-MM
-      const category = getSaleCategory(sale);
-      const safeModelName = `"${sale.modelName.replace(/"/g, '""')}"`;
-      const safeImei = `"${sale.imei || ''}"`;
+    if (type === 'raw') {
+      // RAW DATA EXPORT
+      csvContent = "Date,Month,Category,Model Name,Price,Incentive,IMEI,Sellout,Upgrade\n";
+      dataToExport.forEach(sale => {
+        const month = sale.date.substring(0, 7);
+        const category = getSaleCategory(sale);
+        const safeModelName = `"${sale.modelName.replace(/"/g, '""')}"`;
+        const safeImei = `"${sale.imei || ''}"`;
+        csvContent += `${sale.date},${month},${category.toUpperCase()},${safeModelName},${sale.dpNumber || 0},${sale.incentive || 0},${safeImei},${sale.selloutSupport || 0},${sale.upgrade || 0}\n`;
+      });
+    } else if (type === 'summary') {
+      // MODEL WISE SUMMARY EXPORT
+      const groupedData = {};
+      dataToExport.forEach(sale => {
+        if (!groupedData[sale.modelName]) {
+          groupedData[sale.modelName] = { count: 0, totalValue: 0, totalIncentive: 0, category: getSaleCategory(sale) };
+        }
+        groupedData[sale.modelName].count += 1;
+        groupedData[sale.modelName].totalValue += (sale.dpNumber || 0);
+        groupedData[sale.modelName].totalIncentive += (sale.incentive || 0);
+      });
 
-      csvContent += `${sale.date},${month},${category.toUpperCase()},${safeModelName},${sale.dpNumber || 0},${sale.incentive || 0},${safeImei},${sale.selloutSupport || 0},${sale.upgrade || 0}\n`;
-    });
+      csvContent = "Model Name,Category,Total Units,Total Value,Total Incentive\n";
+      
+      // Sort by count descending
+      Object.entries(groupedData)
+        .sort((a, b) => b[1].count - a[1].count)
+        .forEach(([modelName, data]) => {
+          const safeModelName = `"${modelName.replace(/"/g, '""')}"`;
+          csvContent += `${safeModelName},${data.category.toUpperCase()},${data.count},${data.totalValue},${data.totalIncentive}\n`;
+        });
+    }
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `SaleBook_Report_${exportAll ? 'All_Time' : selectedMonth}.csv`;
+    
+    const timeLabel = exportConfig.exportAll ? 'All_Time' : selectedMonth;
+    const formatLabel = type === 'raw' ? 'Detailed' : 'ModelWise_Summary';
+    
+    link.download = `SaleBook_${formatLabel}_${timeLabel}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    showNotification("Excel report downloaded!");
+    
+    showNotification("Excel file downloaded successfully!");
+    setExportConfig({ isOpen: false, exportAll: false });
   };
+
 
   const handleArrayChange = (category, index, field, value) => {
     if (!draftSlabs) return;
@@ -445,6 +482,17 @@ export default function App() {
     if (!saleToDelete) return;
     setSales(sales.filter(s => s.id !== saleToDelete));
     setSaleToDelete(null); 
+  };
+
+  // APP FACTORY RESET
+  const handleFactoryReset = () => {
+    localStorage.removeItem('salebook_data_sales');
+    localStorage.removeItem('salebook_data_settings');
+    setSales([]);
+    setIncentiveSlabs(DEFAULT_SLABS);
+    setShowResetModal(false);
+    showNotification('App factory reset successful!');
+    setActiveBottomTab('dashboard');
   };
 
   const handleBackup = () => {
@@ -834,7 +882,7 @@ export default function App() {
                   <h2 className="text-[10px] sm:text-[11px] font-bold text-white/70 uppercase tracking-widest drop-shadow-sm">
                     Sales History
                   </h2>
-                  <button onClick={() => exportSalesData(false)} title="Export Month Data" className="bg-white/10 hover:bg-white/20 p-1.5 rounded-full transition-colors border border-white/20 shadow-sm flex items-center justify-center">
+                  <button onClick={() => setExportConfig({isOpen: true, exportAll: false})} title="Export Month Data" className="bg-white/10 hover:bg-white/20 p-1.5 rounded-full transition-colors border border-white/20 shadow-sm flex items-center justify-center">
                     <FileDown className="w-3.5 h-3.5 text-white/90" />
                   </button>
                 </div>
@@ -988,6 +1036,43 @@ export default function App() {
           </div>
         )}
 
+        {/* EXPORT OPTIONS MODAL */}
+        {exportConfig.isOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 w-full h-full overflow-hidden">
+            <div className={`w-full max-w-[340px] ${glassCard} border-white/30 p-6 animate-in fade-in zoom-in duration-300 flex flex-col shrink-0`}>
+              <div className="flex items-center justify-center w-12 h-12 bg-white/10 border border-white/20 rounded-full mb-4 mx-auto shadow-inner">
+                <FileSpreadsheet className="w-6 h-6 text-white" strokeWidth={2}/>
+              </div>
+              <h3 className="text-[18px] font-bold text-white drop-shadow-md text-center mb-1">Export Sales Data</h3>
+              <p className="text-[12px] text-white/60 font-medium text-center mb-6">
+                Choose format for <span className="text-white font-bold">{exportConfig.exportAll ? 'All Time' : formatMonthLabel(selectedMonth)}</span>
+              </p>
+              
+              <div className="flex flex-col gap-3 w-full">
+                <button onClick={() => executeSalesExport('raw')} className="w-full flex items-center gap-3 p-3.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-[16px] transition-colors text-left group">
+                  <div className="p-2 bg-black/20 rounded-full group-hover:scale-110 transition-transform"><List className="w-4 h-4 text-white" /></div>
+                  <div className="flex flex-col">
+                    <span className="text-[13px] font-bold text-white">Detailed List</span>
+                    <span className="text-[10px] text-white/50">Date, Price, IMEI, Upgrades etc.</span>
+                  </div>
+                </button>
+                
+                <button onClick={() => executeSalesExport('summary')} className="w-full flex items-center gap-3 p-3.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-[16px] transition-colors text-left group">
+                  <div className="p-2 bg-black/20 rounded-full group-hover:scale-110 transition-transform"><BarChart3 className="w-4 h-4 text-white" /></div>
+                  <div className="flex flex-col">
+                    <span className="text-[13px] font-bold text-white">Model-wise Summary</span>
+                    <span className="text-[10px] text-white/50">Grouped by Model, Total Qty & Value</span>
+                  </div>
+                </button>
+              </div>
+
+              <button onClick={() => setExportConfig({isOpen: false, exportAll: false})} className="w-full mt-6 py-3 font-bold text-[13px] text-white bg-red-500/20 hover:bg-red-500/40 border border-red-500/30 rounded-full transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* TARGET MODAL */}
         {showTargetModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 w-full h-full overflow-hidden">
@@ -1084,6 +1169,23 @@ export default function App() {
                 <button onClick={confirmRestore} disabled={isRestoring} className="flex-1 min-w-0 flex justify-center items-center py-3 sm:py-3.5 rounded-full font-bold text-[12px] sm:text-[13px] text-black bg-white hover:bg-white/90 transition-colors disabled:opacity-50 shadow-lg truncate px-1">
                   {isRestoring ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : 'Restore'}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* RESET APP MODAL */}
+        {showResetModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 w-full h-full overflow-hidden">
+            <div className={`${glassCard} p-6 sm:p-7 w-[calc(100vw-2rem)] max-w-[320px] flex flex-col items-center text-center animate-in fade-in zoom-in duration-200 shrink-0 border-red-500/40`}>
+              <div className="w-12 h-12 sm:w-14 sm:h-14 bg-red-500/20 border border-red-500/30 text-red-400 rounded-full flex items-center justify-center mb-5 shrink-0 shadow-inner">
+                <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 shrink-0" strokeWidth={2} />
+              </div>
+              <h3 className="text-[16px] sm:text-[18px] font-bold text-white mb-2 w-full truncate drop-shadow-md">Factory Reset?</h3>
+              <p className="text-[11px] sm:text-[13px] text-white/70 mb-6 sm:mb-8 font-medium leading-relaxed w-full">This will permanently delete ALL sales, targets, and custom settings. Please backup your data first.</p>
+              <div className="flex items-center gap-3 w-full shrink-0">
+                <button onClick={() => setShowResetModal(false)} className="flex-1 min-w-0 py-3 sm:py-3.5 rounded-full font-bold text-[12px] sm:text-[13px] text-white bg-white/10 border border-white/20 hover:bg-white/20 transition-colors truncate px-1">Cancel</button>
+                <button onClick={handleFactoryReset} className="flex-1 min-w-0 py-3 sm:py-3.5 rounded-full font-bold text-[12px] sm:text-[13px] text-white bg-red-600 hover:bg-red-700 transition-colors shadow-lg truncate px-1">Reset App</button>
               </div>
             </div>
           </div>
@@ -1295,22 +1397,39 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* UPDATED DATA BACKUP CARD WITH EXPORT ALL OPTION */}
-                <div className={`${glassCard} p-5 sm:p-6 w-full shrink-0`}>
-                  <h2 className="text-[11px] sm:text-[13px] font-bold text-white uppercase tracking-widest flex items-center mb-3 sm:mb-4 truncate drop-shadow-sm"><Database className="w-4 h-4 sm:w-5 sm:h-5 mr-2.5 opacity-90 shrink-0" strokeWidth={2}/> Data Management</h2>
-                  <p className="text-[12px] sm:text-[13.5px] text-white/80 mb-5 sm:mb-6 leading-relaxed font-medium">Backup your data, restore, or export all sales to Excel.</p>
+                {/* UPDATED COLLAPSIBLE DATA MANAGEMENT */}
+                <div className={`${glassCard} w-full shrink-0 overflow-hidden transition-all duration-300`}>
+                  <button onClick={() => setExpandedSection(expandedSection === 'data' ? null : 'data')} className="w-full flex items-center justify-between p-4 sm:p-5 hover:bg-white/5 transition-colors">
+                    <div className="flex items-center space-x-3 sm:space-x-4 min-w-0">
+                      <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 border border-white/30 flex items-center justify-center shrink-0 shadow-inner">
+                        <Database className="w-4 h-4 sm:w-5 sm:h-5 text-white" strokeWidth={2} />
+                      </div>
+                      <span className="text-[14px] sm:text-[15px] font-bold text-white truncate drop-shadow-sm">Data Management</span>
+                    </div>
+                    <div className={`transition-transform duration-300 p-1.5 sm:p-2 bg-black/20 rounded-full border border-white/10 shrink-0 ${expandedSection === 'data' ? 'rotate-90' : ''}`}>
+                      <ChevronRight className="w-4 h-4 text-white" strokeWidth={2} />
+                    </div>
+                  </button>
                   
-                  <div className="flex flex-col gap-3 sm:gap-4 w-full">
-                    <button onClick={() => exportSalesData(true)} className="w-full flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-green-500/20 border border-green-500/30 text-green-100 hover:bg-green-500/30 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner shrink-0">
-                      <FileDown className="w-4.5 h-4.5 opacity-90 shrink-0" strokeWidth={2}/> Export All Sales (Excel)
-                    </button>
-
-                    <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full">
-                      <button onClick={handleBackup} className="flex-1 flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-white/10 border border-white/30 text-white hover:bg-white/20 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner shrink-0"><Download className="w-4.5 h-4.5 opacity-80 shrink-0" strokeWidth={2}/> Backup JSON</button>
-                      <button onClick={() => fileInputRef.current?.click()} disabled={isRestoring} className="flex-1 flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-white/10 border border-white/30 text-white hover:bg-white/20 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner disabled:opacity-50 shrink-0">
-                        {isRestoring ? <Loader2 className="w-4.5 h-4.5 animate-spin opacity-80 shrink-0" strokeWidth={2} /> : <Upload className="w-4.5 h-4.5 opacity-80 shrink-0" strokeWidth={2} />} {isRestoring ? 'Restoring...' : 'Restore JSON'}
+                  <div className={`transition-all duration-500 ease-in-out overflow-hidden flex flex-col w-full ${expandedSection === 'data' ? 'max-h-[500px] opacity-100 border-t border-white/20 bg-black/10' : 'max-h-0 opacity-0'}`}>
+                    <div className="p-4 sm:p-5 flex flex-col gap-3 sm:gap-4 w-full">
+                      <button onClick={() => setExportConfig({isOpen: true, exportAll: true})} className="w-full flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-green-500/20 border border-green-500/30 text-green-100 hover:bg-green-500/30 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner shrink-0">
+                        <FileDown className="w-4.5 h-4.5 opacity-90 shrink-0" strokeWidth={2}/> Export All Sales (Excel)
                       </button>
-                      <input type="file" accept=".json,application/json,text/plain" ref={fileInputRef} onChange={handleRestore} className="hidden" />
+
+                      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full">
+                        <button onClick={handleBackup} className="flex-1 flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-white/10 border border-white/30 text-white hover:bg-white/20 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner shrink-0"><Download className="w-4.5 h-4.5 opacity-80 shrink-0" strokeWidth={2}/> Backup JSON</button>
+                        <button onClick={() => fileInputRef.current?.click()} disabled={isRestoring} className="flex-1 flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-white/10 border border-white/30 text-white hover:bg-white/20 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner disabled:opacity-50 shrink-0">
+                          {isRestoring ? <Loader2 className="w-4.5 h-4.5 animate-spin opacity-80 shrink-0" strokeWidth={2} /> : <Upload className="w-4.5 h-4.5 opacity-80 shrink-0" strokeWidth={2} />} {isRestoring ? 'Restoring...' : 'Restore JSON'}
+                        </button>
+                        <input type="file" accept=".json,application/json,text/plain" ref={fileInputRef} onChange={handleRestore} className="hidden" />
+                      </div>
+
+                      {/* FACTORY RESET BUTTON */}
+                      <div className="w-full h-[1px] bg-white/10 my-1"></div>
+                      <button onClick={() => setShowResetModal(true)} className="w-full flex items-center justify-center gap-2 py-3.5 sm:py-4 bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 rounded-[16px] sm:rounded-[20px] text-[12.5px] sm:text-[13.5px] font-bold transition-colors shadow-inner shrink-0 mt-2">
+                        <RotateCcw className="w-4.5 h-4.5 opacity-90 shrink-0" strokeWidth={2}/> Factory Reset App
+                      </button>
                     </div>
                   </div>
                 </div>
