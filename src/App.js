@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Users, LayoutDashboard, Settings, Loader2, AlertCircle, Smartphone, ChevronRight, ArrowLeft, Plus, Trash2, AlertTriangle, Calendar, ScanLine, Tag, X, Check, Menu, HardDrive, RefreshCw, Eye, EyeOff, Edit2, ChevronDown, ChevronUp, Download, Upload, Database, Save, FileDown, Watch, Target, Lock, Unlock, BarChart3, List, FileSpreadsheet, RotateCcw } from 'lucide-react';
+import { Search, Users, LayoutDashboard, Settings, Loader2, AlertCircle, Smartphone, ChevronRight, ArrowLeft, Plus, Trash2, AlertTriangle, Calendar, ScanLine, Tag, X, Check, Menu, HardDrive, RefreshCw, Eye, EyeOff, Edit2, ChevronDown, ChevronUp, Download, Upload, Database, Save, FileDown, Watch, Target, Lock, Unlock, BarChart3, List, FileSpreadsheet, RotateCcw, Youtube, MessageCircle, Info } from 'lucide-react';
 
 // ==========================================
 // 1. CONSTANTS, DEFAULTS & HELPERS
@@ -1433,6 +1433,49 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+
+                {/* APP INFO & SUPPORT SECTION (COMBINED) */}
+                <div className={`${glassCard} w-full shrink-0 overflow-hidden mb-6 transition-all duration-300`}>
+                  <div className="p-4 sm:p-5 border-b border-white/10 w-full flex items-center gap-3 bg-white/5">
+                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center border border-white/20 shadow-inner">
+                      <Info className="w-4 h-4 text-white" strokeWidth={2.5} />
+                    </div>
+                    <span className="text-[14px] sm:text-[15px] font-bold text-white truncate drop-shadow-sm">App Info & Support</span>
+                  </div>
+                  
+                  <div className="flex flex-col w-full">
+                    {/* Support Row */}
+                    <a href="https://wa.me/918888851642" target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 sm:p-5 hover:bg-white/10 transition-colors border-b border-white/5 group">
+                      <div className="flex items-center gap-3 sm:gap-4">
+                        <div className="w-10 h-10 rounded-full bg-green-500/20 border border-green-500/30 flex items-center justify-center shadow-inner group-hover:scale-105 transition-transform">
+                          <MessageCircle className="w-4.5 h-4.5 text-green-400" strokeWidth={2} />
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[13.5px] sm:text-[14.5px] font-bold text-white drop-shadow-sm">Contact Support</span>
+                          <span className="text-[10.5px] sm:text-[11.5px] font-medium text-white/50 mt-0.5">Chat with us on WhatsApp</span>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4.5 h-4.5 text-white/30 group-hover:text-white/70 transition-colors" />
+                    </a>
+
+                    {/* Developer Row */}
+                    <a href="https://www.youtube.com/@mabarena" target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 sm:p-5 hover:bg-white/10 transition-colors group">
+                      <div className="flex items-center gap-3 sm:gap-4">
+                        <div className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center shadow-inner group-hover:scale-105 transition-transform">
+                          <Youtube className="w-4.5 h-4.5 text-red-400" strokeWidth={2} />
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[9.5px] sm:text-[10px] font-bold text-white/50 uppercase tracking-widest mb-0.5">Developed By</span>
+                          <span className="text-[14px] sm:text-[15px] font-extrabold text-white drop-shadow-sm">Mab Arena</span>
+                        </div>
+                      </div>
+                      <div className="px-3.5 py-1.5 rounded-full bg-red-600/20 border border-red-500/30 text-[10px] sm:text-[11px] font-bold text-red-400 group-hover:bg-red-600 group-hover:text-white transition-all shadow-sm">
+                        Subscribe
+                      </div>
+                    </a>
+                  </div>
+                </div>
+
               </div>
             ) : (
               <div className="flex flex-col h-full w-full overflow-hidden">
