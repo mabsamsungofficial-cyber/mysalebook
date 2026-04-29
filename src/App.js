@@ -73,7 +73,7 @@ const getDPNumber = (dpString) => {
   return parseInt(String(dpString).replace(/[^0-9]/g, ''), 10) || 0;
 };
 
-// HELPER: Device Category Detect karne ke liye
+// HELPER: Device Category Detect
 const getDeviceCategory = (model) => {
   if (!model) return 'smartphone';
   const upperName = (model.modelName || '').toUpperCase();
@@ -115,15 +115,22 @@ export default function App() {
   const [backupDataToRestore, setBackupDataToRestore] = useState(null); 
   const [showTargetModal, setShowTargetModal] = useState(false);
   
+  // Modal for Device List in Settings
+  const [showDeviceListModal, setShowDeviceListModal] = useState(false);
+
   // EXPORT & RESET MODAL STATES
   const [exportConfig, setExportConfig] = useState({ isOpen: false, exportAll: false });
   const [showResetModal, setShowResetModal] = useState(false);
 
-  // MONTH FILTER OR HISTORY VIEW TYPE KE LIYE
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey());
-  const [historyViewMode, setHistoryViewMode] = useState('date'); // 'date' ya 'model'
+  const [historyViewMode, setHistoryViewMode] = useState('date'); 
 
-  const [allModels, setAllModels] = useState([]); 
+  const [allModels, setAllModels] = useState(() => {
+    try {
+      const localModels = localStorage.getItem('salebook_data_models');
+      return localModels ? JSON.parse(localModels) : [];
+    } catch(e) { return []; }
+  }); 
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState(null);
   
@@ -139,16 +146,9 @@ export default function App() {
       const localData = localStorage.getItem('salebook_data_settings');
       if (localData) {
         let parsed = JSON.parse(localData);
-        const hasOldFormat = parsed.wearableExceptions && parsed.wearableExceptions.some(e => e.models === 'Buds 4 Pro');
-        const hasNewFormat = parsed.wearableExceptions && parsed.wearableExceptions.some(e => e.models.includes('Buds4 Pro'));
-        if (hasOldFormat && !hasNewFormat) parsed.wearableExceptions = DEFAULT_SLABS.wearableExceptions;
-
         return {
           ...DEFAULT_SLABS,
           ...parsed,
-          smartphoneExceptions: parsed.smartphoneExceptions || [],
-          tabExceptions: parsed.tabExceptions || [],
-          wearableExceptions: parsed.wearableExceptions || DEFAULT_SLABS.wearableExceptions,
           targets: parsed.targets || {}
         };
       }
@@ -181,19 +181,9 @@ export default function App() {
     }
     metaViewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
 
-    const disableDevTools = (e) => {
-      if (e.keyCode === 123 || e.key === 'F12') e.preventDefault();
-      if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) e.preventDefault();
-      if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) e.preventDefault();
-    };
-
     const disableContextMenu = (e) => e.preventDefault();
-
-    window.addEventListener('keydown', disableDevTools);
     window.addEventListener('contextmenu', disableContextMenu);
-
     return () => {
-      window.removeEventListener('keydown', disableDevTools);
       window.removeEventListener('contextmenu', disableContextMenu);
     };
   }, []);
@@ -205,8 +195,10 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem('salebook_data_sales', JSON.stringify(sales)); }, [sales]);
   useEffect(() => { localStorage.setItem('salebook_data_settings', JSON.stringify(incentiveSlabs)); }, [incentiveSlabs]);
+  useEffect(() => { localStorage.setItem('salebook_data_models', JSON.stringify(allModels)); }, [allModels]);
 
-  const fetchModelsFromSheet = async () => {
+  const fetchModelsFromSheet = async (isAuto = false) => {
+    if (loadingModels) return;
     setLoadingModels(true);
     setModelsError(null);
     let hasFetchError = false;
@@ -217,7 +209,7 @@ export default function App() {
           const response = await fetch(`${BASE_SHEET_URL}${tab.gid}`);
           if (!response.ok) throw new Error("Network error fetching sheet");
           const text = await response.text();
-          if (text.trim().startsWith('<html') || text.trim().startsWith('<!DOCTYPE')) throw new Error("Google Sheet appears to be private or inaccessible.");
+          if (text.trim().startsWith('<html') || text.trim().startsWith('<!DOCTYPE')) throw new Error("Google Sheet appears to be private.");
 
           const rows = text.split(/\r?\n/)
             .map(line => line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(val => val.replace(/^"|"$/g, '').replace(/""/g, '"').trim()))
@@ -277,6 +269,8 @@ export default function App() {
       });
 
       setAllModels(Array.from(uniqueModelsMap.values()));
+      localStorage.setItem('salebook_last_sync', getTodayString()); 
+      if (!isAuto) showNotification("Devices synced successfully!");
     } catch (err) {
       setModelsError(err.message || "Data fetch error.");
     } finally {
@@ -284,7 +278,13 @@ export default function App() {
     }
   };
 
-  useEffect(() => { fetchModelsFromSheet(); }, []);
+  // AUTO-SYNC LOGIC (Once per day)
+  useEffect(() => {
+    const lastSyncDate = localStorage.getItem('salebook_last_sync');
+    if (lastSyncDate !== getTodayString()) {
+      fetchModelsFromSheet(true); 
+    }
+  }, []);
 
   const calculateIncentive = (model) => {
     const dpNumber = getDPNumber(model.dp);
@@ -338,7 +338,7 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  // EXPORT SALES DATA (RAW OR SUMMARY)
+  // EXPORT SALES DATA
   const executeSalesExport = (type) => {
     const dataToExport = exportConfig.exportAll ? sales : filteredSalesByMonth;
 
@@ -351,7 +351,6 @@ export default function App() {
     let csvContent = "";
 
     if (type === 'raw') {
-      // RAW DATA EXPORT
       csvContent = "Date,Month,Category,Model Name,Price,Incentive,IMEI,Sellout,Upgrade\n";
       dataToExport.forEach(sale => {
         const month = sale.date.substring(0, 7);
@@ -361,7 +360,6 @@ export default function App() {
         csvContent += `${sale.date},${month},${category.toUpperCase()},${safeModelName},${sale.dpNumber || 0},${sale.incentive || 0},${safeImei},${sale.selloutSupport || 0},${sale.upgrade || 0}\n`;
       });
     } else if (type === 'summary') {
-      // MODEL WISE SUMMARY EXPORT
       const groupedData = {};
       dataToExport.forEach(sale => {
         if (!groupedData[sale.modelName]) {
@@ -373,8 +371,6 @@ export default function App() {
       });
 
       csvContent = "Model Name,Category,Total Units,Total Value,Total Incentive\n";
-      
-      // Sort by count descending
       Object.entries(groupedData)
         .sort((a, b) => b[1].count - a[1].count)
         .forEach(([modelName, data]) => {
@@ -488,7 +484,10 @@ export default function App() {
   const handleFactoryReset = () => {
     localStorage.removeItem('salebook_data_sales');
     localStorage.removeItem('salebook_data_settings');
+    localStorage.removeItem('salebook_data_models');
+    localStorage.removeItem('salebook_last_sync');
     setSales([]);
+    setAllModels([]);
     setIncentiveSlabs(DEFAULT_SLABS);
     setShowResetModal(false);
     showNotification('App factory reset successful!');
@@ -557,17 +556,6 @@ export default function App() {
       }
     }, 600);
   };
-
-  useEffect(() => {
-    if (searchQuery.trim() !== '' && activeBottomTab === 'models' && activeSeries !== 'ALL') {
-      setActiveSeries('ALL');
-      setTimeout(() => document.getElementById('tab-ALL')?.scrollIntoView({ behavior: 'smooth', inline: 'center' }), 50);
-    }
-  }, [searchQuery, activeBottomTab, activeSeries]);
-
-  const filteredModels = searchQuery.trim() !== ''
-    ? allModels.filter(m => m.modelName.toLowerCase().includes(searchQuery.toLowerCase()) || m.modelCode.toLowerCase().includes(searchQuery.toLowerCase()))
-    : (activeSeries === 'ALL' ? allModels : allModels.filter(m => m.seriesGid === activeSeries));
 
   // ==========================================
   // BUSINESS CALCULATIONS (BASED ON SELECTED MONTH)
@@ -674,6 +662,11 @@ export default function App() {
   }, {});
   const sortedModels = Object.entries(groupedByModel).sort((a, b) => b[1].count - a[1].count);
 
+  const filteredModels = searchQuery.trim() !== ''
+    ? allModels.filter(m => m.modelName.toLowerCase().includes(searchQuery.toLowerCase()) || m.modelCode.toLowerCase().includes(searchQuery.toLowerCase()))
+    : (activeSeries === 'ALL' ? allModels : allModels.filter(m => m.seriesGid === activeSeries));
+
+
   // ==========================================
   // LIQUID GLASS + DARK MESH UI THEME 
   // ==========================================
@@ -726,7 +719,7 @@ export default function App() {
               <div className="grid grid-cols-3 gap-2 sm:gap-3 w-full">
                 <div className={`${glassCard} p-3 sm:p-4.5 flex flex-col items-center justify-center relative overflow-hidden text-center`}>
                   <span className="text-[9px] sm:text-[10px] font-semibold text-white/60 uppercase tracking-widest mb-1 sm:mb-1.5 w-full truncate">Total Value</span>
-                  <span className="text-[14px] sm:text-[16px] font-bold drop-shadow-md w-full truncate">{formatMoney(totalRevThisMonth)}</span>
+                  <span className="text-[14px] sm:text-[16px] font-bold drop-shadow-md w-full truncate can-select">{formatMoney(totalRevThisMonth)}</span>
                 </div>
                 <div className={`${glassCard} p-3 sm:p-4.5 flex flex-col items-center justify-center relative overflow-hidden text-center`}>
                   <span className="text-[9px] sm:text-[10px] font-semibold text-white/60 uppercase tracking-widest mb-1 sm:mb-1.5 w-full truncate">Total Vol</span>
@@ -924,7 +917,7 @@ export default function App() {
                             <span className="text-[9px] sm:text-[10px] font-bold text-white/80 border border-white/20 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full bg-black/20 shrink-0">
                               {group.volume} Unit{group.volume > 1 ? 's' : ''}
                             </span>
-                            <span className="text-[13px] sm:text-[14px] font-bold text-white drop-shadow-sm shrink-0">{formatMoney(group.value)}</span>
+                            <span className="text-[13px] sm:text-[14px] font-bold text-white drop-shadow-sm shrink-0 can-select">{formatMoney(group.value)}</span>
                           </div>
                         </div>
                         <div className="divide-y divide-white/5 w-full flex flex-col">
@@ -1033,6 +1026,102 @@ export default function App() {
                 <Plus className="w-6 h-6 sm:w-7 sm:h-7 shrink-0" strokeWidth={2} />
               </button>
             </div>
+          </div>
+        )}
+
+        {/* OVERLAY: ADD/EDIT SALE FORM (ORIGINAL FULL FORM BACK) */}
+        {activeBottomTab === 'dashboard' && isAddingSale && (
+          <div className="flex flex-col h-full bg-black/40 backdrop-blur-3xl z-50 absolute inset-0 w-full overflow-hidden">
+            <header className="bg-transparent px-4 sm:px-5 pt-8 sm:pt-10 pb-4 sm:pb-5 flex items-center justify-between w-full shrink-0 border-b border-white/10">
+              <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
+                <button onClick={() => { setIsAddingSale(false); setEditingSaleId(null); }} className="p-2 sm:p-2.5 -ml-1 sm:-ml-2 text-white/70 hover:text-white bg-white/5 border border-white/10 rounded-full transition-colors shrink-0"><ArrowLeft className="w-4.5 h-4.5 sm:w-5 sm:h-5 shrink-0" strokeWidth={2}/></button>
+                <h1 className="text-[18px] sm:text-[20px] font-bold text-white truncate drop-shadow-md">{editingSaleId ? 'Edit Sale' : 'Record Sale'}</h1>
+              </div>
+              <button onClick={saveNewSale} disabled={!selectedSaleModel} className={`text-[13px] sm:text-[14px] font-bold px-5 sm:px-6 py-2 sm:py-2.5 rounded-full transition-all shrink-0 shadow-lg ${selectedSaleModel ? 'text-black bg-white hover:bg-white/90' : 'text-white/40 bg-white/5 border border-white/10 shadow-none'}`}>Save</button>
+            </header>
+
+            <main className="flex-1 overflow-y-auto p-4 sm:p-5 pb-10 hide-scrollbar w-full flex flex-col gap-4 sm:gap-5">
+              
+              {/* CARD 1: MODEL & DATE */}
+              <div className={`${glassCard} p-5 sm:p-6 flex flex-col gap-4 sm:gap-5 w-full relative z-[60]`}>
+                <div className="flex flex-col w-full">
+                  <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 flex items-center truncate"><Calendar className="w-3.5 h-3.5 mr-1.5 opacity-80 shrink-0" strokeWidth={2}/> Sale Date</label>
+                  <input type="date" value={saleForm.date} onChange={(e) => setSaleForm({...saleForm, date: e.target.value})} className={`${glassInput} [color-scheme:dark] shrink-0`} />
+                </div>
+
+                <div className="flex flex-col relative w-full">
+                  <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 flex items-center truncate"><Smartphone className="w-3.5 h-3.5 mr-1.5 opacity-80 shrink-0" strokeWidth={2}/> Model Name</label>
+                  {selectedSaleModel ? (
+                    <div className="flex items-center justify-between bg-white/10 border border-white/30 rounded-[16px] px-4 sm:px-5 py-3 sm:py-4 w-full overflow-hidden gap-2 shadow-inner">
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-[9px] font-bold text-white/60 uppercase tracking-widest mb-1 truncate">{selectedSaleModel.modelCode}</span>
+                        <span className="text-[14px] sm:text-[15px] font-bold text-white truncate drop-shadow-sm">{selectedSaleModel.modelName}</span>
+                      </div>
+                      <button onClick={() => { setSelectedSaleModel(null); setSaleModelQuery(''); }} className="p-2 sm:p-2.5 bg-black/20 border border-white/20 text-white/70 rounded-full hover:text-white hover:bg-black/40 transition-colors shrink-0"><X className="w-4 h-4 shrink-0" strokeWidth={2}/></button>
+                    </div>
+                  ) : (
+                    <div className="w-full flex flex-col relative">
+                      <div className="relative w-full">
+                        <Search className="w-4 h-4 sm:w-4.5 sm:h-4.5 absolute left-4 sm:left-4.5 top-3.5 sm:top-4 text-white/50 shrink-0" strokeWidth={2}/>
+                        <input type="text" placeholder="Search model..." value={saleModelQuery} onChange={(e) => setSaleModelQuery(e.target.value)} className={`${glassInput} pl-11 sm:pl-12`} />
+                      </div>
+                      {saleModelQuery.trim() !== '' && (
+                        <div className="mt-2 bg-[#1a1a1a] border border-white/20 rounded-[20px] sm:rounded-[24px] max-h-[200px] overflow-y-auto shadow-[0_20px_50px_rgba(0,0,0,1)] absolute w-full z-[100] top-full hide-scrollbar flex flex-col">
+                          {allModels.filter(m => m.modelName.toLowerCase().includes(saleModelQuery.toLowerCase()) || m.modelCode.toLowerCase().includes(saleModelQuery.toLowerCase())).slice(0, 15).map(m => (
+                            <div key={m.id} onClick={() => setSelectedSaleModel(m)} className="flex items-center justify-between p-4 sm:p-4.5 border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors w-full gap-2">
+                              <div className="flex flex-col min-w-0 flex-1"><span className="text-[13px] sm:text-[14px] font-bold text-white mb-1 truncate drop-shadow-sm">{m.modelName}</span><span className="text-[9px] sm:text-[10px] font-medium text-white/60 truncate">{m.modelCode}</span></div>
+                              <span className="text-[11px] sm:text-[13px] font-bold text-white/80 shrink-0">{m.dp ? (m.dp.toString().includes('₹') ? m.dp : `₹${m.dp}`) : ''}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* CARD 2: PRICE & INC */}
+              <div className={`${glassCard} p-5 sm:p-6 transition-all duration-300 w-full relative z-[50] ${!selectedSaleModel ? 'opacity-40 pointer-events-none' : ''}`}>
+                <div className="grid grid-cols-2 gap-4 sm:gap-5 w-full">
+                  <div className="flex flex-col w-full">
+                    <span className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 truncate">Dealer Price</span>
+                    <div className="bg-black/20 px-4 sm:px-5 py-3 sm:py-4 rounded-[16px] sm:rounded-[18px] border border-white/20 text-[14px] sm:text-[16px] font-bold text-white truncate w-full shadow-inner">
+                      {selectedSaleModel ? (selectedSaleModel.dp.toString().includes('₹') ? selectedSaleModel.dp : `₹${selectedSaleModel.dp}`) : '₹0'}
+                    </div>
+                  </div>
+                  <div className="flex flex-col w-full">
+                    <span className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 truncate">Incentive</span>
+                    <div className="bg-white/20 px-4 sm:px-5 py-3 sm:py-4 rounded-[16px] sm:rounded-[18px] border border-white/40 text-[14px] sm:text-[16px] font-bold text-white flex items-center truncate w-full shadow-inner">
+                      <Check className="w-4 h-4 sm:w-4.5 sm:h-4.5 mr-1.5 sm:mr-2 text-white shrink-0" strokeWidth={2.5} />₹{selectedSaleModel ? calculateIncentive(selectedSaleModel) : '0'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CARD 3: IMEI & EXTRAS */}
+              <div className={`${glassCard} p-5 sm:p-6 w-full flex flex-col gap-5 sm:gap-6 relative z-[40]`}>
+                <div className="flex flex-col w-full">
+                  <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 flex items-center truncate"><ScanLine className="w-3.5 h-3.5 mr-2 opacity-80 shrink-0" strokeWidth={2}/> IMEI Number</label>
+                  <input type="text" placeholder="Enter or scan IMEI" value={saleForm.imei} onChange={(e) => setSaleForm({...saleForm, imei: e.target.value})} className={`${glassInput} uppercase`} />
+                </div>
+                <div className="grid grid-cols-2 gap-4 sm:gap-5 w-full">
+                  <div className="flex flex-col w-full">
+                    <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 truncate">Sellout</label>
+                    <div className="relative w-full flex items-center">
+                      <span className="absolute left-4 top-3.5 sm:top-4 text-[13px] sm:text-[14px] font-medium text-white/60 shrink-0">₹</span>
+                      <input type="number" placeholder="0" value={saleForm.selloutSupport} onChange={(e) => setSaleForm({...saleForm, selloutSupport: e.target.value})} className={`${glassInput} pl-8 sm:pl-9`} />
+                    </div>
+                  </div>
+                  <div className="flex flex-col w-full">
+                    <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 truncate">Upgrade</label>
+                    <div className="relative w-full flex items-center">
+                      <span className="absolute left-4 top-3.5 sm:top-4 text-[13px] sm:text-[14px] font-medium text-white/60 shrink-0">₹</span>
+                      <input type="number" placeholder="0" value={saleForm.upgrade} onChange={(e) => setSaleForm({...saleForm, upgrade: e.target.value})} className={`${glassInput} pl-8 sm:pl-9`} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
           </div>
         )}
 
@@ -1191,177 +1280,61 @@ export default function App() {
           </div>
         )}
 
-        {/* OVERLAY: ADD/EDIT SALE FORM */}
-        {activeBottomTab === 'dashboard' && isAddingSale && (
-          <div className="flex flex-col h-full bg-black/40 backdrop-blur-3xl z-50 absolute inset-0 w-full overflow-hidden">
-            <header className="bg-transparent px-4 sm:px-5 pt-8 sm:pt-10 pb-4 sm:pb-5 flex items-center justify-between w-full shrink-0 border-b border-white/10">
-              <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
-                <button onClick={() => { setIsAddingSale(false); setEditingSaleId(null); }} className="p-2 sm:p-2.5 -ml-1 sm:-ml-2 text-white/70 hover:text-white bg-white/5 border border-white/10 rounded-full transition-colors shrink-0"><ArrowLeft className="w-4.5 h-4.5 sm:w-5 sm:h-5 shrink-0" strokeWidth={2}/></button>
-                <h1 className="text-[18px] sm:text-[20px] font-bold text-white truncate drop-shadow-md">{editingSaleId ? 'Edit Sale' : 'Record Sale'}</h1>
-              </div>
-              <button onClick={saveNewSale} disabled={!selectedSaleModel} className={`text-[13px] sm:text-[14px] font-bold px-5 sm:px-6 py-2 sm:py-2.5 rounded-full transition-all shrink-0 shadow-lg ${selectedSaleModel ? 'text-black bg-white hover:bg-white/90' : 'text-white/40 bg-white/5 border border-white/10 shadow-none'}`}>Save</button>
-            </header>
-
-            <main className="flex-1 overflow-y-auto p-4 sm:p-5 pb-10 hide-scrollbar w-full flex flex-col gap-4 sm:gap-5">
-              
-              {/* CARD 1: MODEL & DATE */}
-              <div className={`${glassCard} p-5 sm:p-6 flex flex-col gap-4 sm:gap-5 w-full relative z-[60]`}>
-                <div className="flex flex-col w-full">
-                  <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 flex items-center truncate"><Calendar className="w-3.5 h-3.5 mr-1.5 opacity-80 shrink-0" strokeWidth={2}/> Sale Date</label>
-                  <input type="date" value={saleForm.date} onChange={(e) => setSaleForm({...saleForm, date: e.target.value})} className={`${glassInput} [color-scheme:dark] shrink-0`} />
-                </div>
-
-                <div className="flex flex-col relative w-full">
-                  <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 flex items-center truncate"><Smartphone className="w-3.5 h-3.5 mr-1.5 opacity-80 shrink-0" strokeWidth={2}/> Model Name</label>
-                  {selectedSaleModel ? (
-                    <div className="flex items-center justify-between bg-white/10 border border-white/30 rounded-[16px] px-4 sm:px-5 py-3 sm:py-4 w-full overflow-hidden gap-2 shadow-inner">
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-[9px] font-bold text-white/60 uppercase tracking-widest mb-1 truncate">{selectedSaleModel.modelCode}</span>
-                        <span className="text-[14px] sm:text-[15px] font-bold text-white truncate drop-shadow-sm">{selectedSaleModel.modelName}</span>
-                      </div>
-                      <button onClick={() => { setSelectedSaleModel(null); setSaleModelQuery(''); }} className="p-2 sm:p-2.5 bg-black/20 border border-white/20 text-white/70 rounded-full hover:text-white hover:bg-black/40 transition-colors shrink-0"><X className="w-4 h-4 shrink-0" strokeWidth={2}/></button>
-                    </div>
-                  ) : (
-                    <div className="w-full flex flex-col relative">
-                      <div className="relative w-full">
-                        <Search className="w-4 h-4 sm:w-4.5 sm:h-4.5 absolute left-4 sm:left-4.5 top-3.5 sm:top-4 text-white/50 shrink-0" strokeWidth={2}/>
-                        <input type="text" placeholder="Search model..." value={saleModelQuery} onChange={(e) => setSaleModelQuery(e.target.value)} className={`${glassInput} pl-11 sm:pl-12`} />
-                      </div>
-                      {saleModelQuery.trim() !== '' && (
-                        <div className="mt-2 bg-[#1a1a1a] border border-white/20 rounded-[20px] sm:rounded-[24px] max-h-[200px] overflow-y-auto shadow-[0_20px_50px_rgba(0,0,0,1)] absolute w-full z-[100] top-full hide-scrollbar flex flex-col">
-                          {allModels.filter(m => m.modelName.toLowerCase().includes(saleModelQuery.toLowerCase()) || m.modelCode.toLowerCase().includes(saleModelQuery.toLowerCase())).slice(0, 15).map(m => (
-                            <div key={m.id} onClick={() => setSelectedSaleModel(m)} className="flex items-center justify-between p-4 sm:p-4.5 border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors w-full gap-2">
-                              <div className="flex flex-col min-w-0 flex-1"><span className="text-[13px] sm:text-[14px] font-bold text-white mb-1 truncate drop-shadow-sm">{m.modelName}</span><span className="text-[9px] sm:text-[10px] font-medium text-white/60 truncate">{m.modelCode}</span></div>
-                              <span className="text-[11px] sm:text-[13px] font-bold text-white/80 shrink-0">{m.dp ? (m.dp.toString().includes('₹') ? m.dp : `₹${m.dp}`) : ''}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* CARD 2: PRICE & INC */}
-              <div className={`${glassCard} p-5 sm:p-6 transition-all duration-300 w-full relative z-[50] ${!selectedSaleModel ? 'opacity-40 pointer-events-none' : ''}`}>
-                <div className="grid grid-cols-2 gap-4 sm:gap-5 w-full">
-                  <div className="flex flex-col w-full">
-                    <span className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 truncate">Dealer Price</span>
-                    <div className="bg-black/20 px-4 sm:px-5 py-3 sm:py-4 rounded-[16px] sm:rounded-[18px] border border-white/20 text-[14px] sm:text-[16px] font-bold text-white truncate w-full shadow-inner">
-                      {selectedSaleModel ? (selectedSaleModel.dp.toString().includes('₹') ? selectedSaleModel.dp : `₹${selectedSaleModel.dp}`) : '₹0'}
-                    </div>
-                  </div>
-                  <div className="flex flex-col w-full">
-                    <span className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 truncate">Incentive</span>
-                    <div className="bg-white/20 px-4 sm:px-5 py-3 sm:py-4 rounded-[16px] sm:rounded-[18px] border border-white/40 text-[14px] sm:text-[16px] font-bold text-white flex items-center truncate w-full shadow-inner">
-                      <Check className="w-4 h-4 sm:w-4.5 sm:h-4.5 mr-1.5 sm:mr-2 text-white shrink-0" strokeWidth={2.5} />₹{selectedSaleModel ? calculateIncentive(selectedSaleModel) : '0'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* CARD 3: IMEI & EXTRAS */}
-              <div className={`${glassCard} p-5 sm:p-6 w-full flex flex-col gap-5 sm:gap-6 relative z-[40]`}>
-                <div className="flex flex-col w-full">
-                  <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 flex items-center truncate"><ScanLine className="w-3.5 h-3.5 mr-2 opacity-80 shrink-0" strokeWidth={2}/> IMEI Number</label>
-                  <input type="text" placeholder="Enter or scan IMEI" value={saleForm.imei} onChange={(e) => setSaleForm({...saleForm, imei: e.target.value})} className={`${glassInput} uppercase`} />
-                </div>
-                <div className="grid grid-cols-2 gap-4 sm:gap-5 w-full">
-                  <div className="flex flex-col w-full">
-                    <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 truncate">Sellout</label>
-                    <div className="relative w-full flex items-center">
-                      <span className="absolute left-4 top-3.5 sm:top-4 text-[13px] sm:text-[14px] font-medium text-white/60 shrink-0">₹</span>
-                      <input type="number" placeholder="0" value={saleForm.selloutSupport} onChange={(e) => setSaleForm({...saleForm, selloutSupport: e.target.value})} className={`${glassInput} pl-8 sm:pl-9`} />
-                    </div>
-                  </div>
-                  <div className="flex flex-col w-full">
-                    <label className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 sm:mb-2.5 truncate">Upgrade</label>
-                    <div className="relative w-full flex items-center">
-                      <span className="absolute left-4 top-3.5 sm:top-4 text-[13px] sm:text-[14px] font-medium text-white/60 shrink-0">₹</span>
-                      <input type="number" placeholder="0" value={saleForm.upgrade} onChange={(e) => setSaleForm({...saleForm, upgrade: e.target.value})} className={`${glassInput} pl-8 sm:pl-9`} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </main>
-          </div>
-        )}
-
-        {/* TAB 2: MODELS */}
-        {activeBottomTab === 'models' && (
-          <div className="flex flex-col h-full z-10 w-full overflow-hidden">
-            <header className="bg-transparent px-4 sm:px-5 pt-8 sm:pt-10 pb-3 sm:pb-4 sticky top-0 z-20 shrink-0 w-full">
+        {/* MODAL: VIEW DEVICE LIST (Settings se open hoga) */}
+        {showDeviceListModal && (
+          <div className="fixed inset-0 z-[100] flex flex-col bg-[#050505]/95 backdrop-blur-3xl animate-in slide-in-from-bottom duration-300">
+            <header className="px-4 sm:px-5 pt-8 sm:pt-10 pb-3 sm:pb-4 sticky top-0 z-20 shrink-0 w-full bg-[#050505]/80 border-b border-white/10">
               <div className="flex items-center justify-between mb-5 sm:mb-6 w-full">
-                <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight text-white truncate drop-shadow-md">Devices</h1>
-                <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
-                  <button onClick={exportModelsToCSV} className="flex items-center justify-center w-9 h-9 sm:w-11 sm:h-11 bg-white/10 border border-white/20 text-white/80 rounded-full hover:bg-white/20 hover:text-white transition-all backdrop-blur-md shadow-sm shrink-0"><FileDown className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" strokeWidth={2}/></button>
-                  <button onClick={fetchModelsFromSheet} disabled={loadingModels} className="flex items-center gap-1.5 sm:gap-2 px-4 sm:px-5 py-2 sm:py-3 bg-white text-black rounded-full hover:bg-white/90 transition-all disabled:opacity-50 shrink-0 shadow-lg">
-                    <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${loadingModels ? 'animate-spin' : ''}`} strokeWidth={2.5}/>
-                    <span className="text-[11px] sm:text-[13px] font-bold">Sync</span>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setShowDeviceListModal(false)} className="p-2 sm:p-2.5 -ml-2 text-white/70 hover:text-white bg-white/5 border border-white/10 rounded-full transition-colors shrink-0">
+                    <ArrowLeft className="w-5 h-5 shrink-0" strokeWidth={2}/>
+                  </button>
+                  <h1 className="text-[20px] sm:text-[24px] font-bold tracking-tight text-white truncate drop-shadow-md">Devices List</h1>
+                </div>
+                
+                {/* YAHAN WAPAS AAGAYA EXPORT BUTTON */}
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] sm:text-[12px] font-bold text-white/50 bg-white/5 px-3 py-1 rounded-full border border-white/10">{allModels.length} Models</span>
+                  <button onClick={exportModelsToCSV} className="p-2 sm:p-2.5 text-white/70 hover:text-white bg-white/5 border border-white/10 rounded-full transition-colors shrink-0">
+                    <FileDown className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0" strokeWidth={2}/>
                   </button>
                 </div>
+
               </div>
-              <div className="relative mb-5 sm:mb-6 w-full flex items-center">
+              <div className="relative mb-4 sm:mb-5 w-full flex items-center">
                 <Search className="w-4 h-4 sm:w-4.5 sm:h-4.5 absolute left-4 sm:left-4.5 text-white/50 shrink-0" strokeWidth={2}/>
                 <input type="text" placeholder="Search models..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className={`${glassInput} pl-11 sm:pl-12`} />
               </div>
-              
-              <div className="flex overflow-x-auto hide-scrollbar pb-3 sm:pb-4 space-x-2 sm:space-x-3 scroll-smooth w-full">
-                <button 
-                  id="tab-ALL" 
-                  onClick={() => { setActiveSeries('ALL'); setSearchQuery(''); document.getElementById('tab-ALL')?.scrollIntoView({ behavior: 'smooth', inline: 'center' }); }} 
-                  className={`shrink-0 px-5 py-2 rounded-full text-[12px] sm:text-[13px] font-bold transition-all border whitespace-nowrap shadow-sm ${activeSeries === 'ALL' ? 'bg-white text-black border-white' : 'bg-white/10 text-white/80 border-white/20 hover:bg-white/20 backdrop-blur-md'}`}
-                >
+              <div className="flex overflow-x-auto hide-scrollbar pb-2 space-x-2 sm:space-x-3 scroll-smooth w-full">
+                <button onClick={() => { setActiveSeries('ALL'); setSearchQuery(''); }} className={`shrink-0 px-5 py-2 rounded-full text-[12px] sm:text-[13px] font-bold transition-all border whitespace-nowrap shadow-sm ${activeSeries === 'ALL' ? 'bg-white text-black border-white' : 'bg-white/10 text-white/80 border-white/20 hover:bg-white/20'}`}>
                   All Devices
                 </button>
                 {SHEET_TABS.map((tab) => (
-                  <button 
-                    key={tab.gid} 
-                    id={`tab-${tab.gid}`} 
-                    onClick={() => { setActiveSeries(tab.gid); setSearchQuery(''); document.getElementById(`tab-${tab.gid}`)?.scrollIntoView({ behavior: 'smooth', inline: 'center' }); }} 
-                    className={`shrink-0 px-5 py-2 rounded-full text-[12px] sm:text-[13px] font-bold transition-all border whitespace-nowrap shadow-sm ${activeSeries === tab.gid ? 'bg-white text-black border-white' : 'bg-white/10 text-white/80 border-white/20 hover:bg-white/20 backdrop-blur-md'}`}
-                  >
+                  <button key={tab.gid} onClick={() => { setActiveSeries(tab.gid); setSearchQuery(''); }} className={`shrink-0 px-5 py-2 rounded-full text-[12px] sm:text-[13px] font-bold transition-all border whitespace-nowrap shadow-sm ${activeSeries === tab.gid ? 'bg-white text-black border-white' : 'bg-white/10 text-white/80 border-white/20 hover:bg-white/20'}`}>
                     {tab.name}
                   </button>
                 ))}
               </div>
             </header>
-
-            <main className="flex-1 overflow-y-auto pb-32 px-4 sm:px-5 pt-2 sm:pt-3 hide-scrollbar w-full">
-              {loadingModels ? (
-                <div className="flex flex-col items-center justify-center h-[50vh] text-white/70 w-full"><Loader2 className="w-8 h-8 sm:w-10 sm:h-10 animate-spin mb-3 sm:mb-4 opacity-80 shrink-0" strokeWidth={2}/><p className="font-medium text-[12px] sm:text-[14px]">Fetching Data...</p></div>
-              ) : modelsError ? (
-                <div className="flex flex-col items-center justify-center h-[50vh] text-white/70 w-full"><AlertCircle className="w-10 h-10 sm:w-12 sm:h-12 mb-3 sm:mb-4 opacity-80 shrink-0" strokeWidth={2}/><p className="text-[12px] sm:text-[14px] font-medium text-center px-4">{modelsError}</p></div>
-              ) : filteredModels.length === 0 ? (
+            <main className="flex-1 overflow-y-auto pb-10 px-4 sm:px-5 pt-4 hide-scrollbar w-full">
+              {filteredModels.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-[50vh] text-white/40 w-full"><Search className="w-10 h-10 sm:w-12 h-12 mb-3 sm:mb-4 opacity-50 shrink-0" strokeWidth={1.5}/> <p className="text-[12px] sm:text-[14px] font-medium">No models found</p></div>
               ) : (
                 <div className="w-full flex flex-col gap-3 sm:gap-3.5">
                   {filteredModels.map((model) => {
-                    const incentive = calculateIncentive(model);
                     const isWearable = model.seriesGid === '596867009' || /WATCH|BUDS|RING/i.test(model.modelName) || /WATCH|BUDS|RING/i.test(model.modelCode);
-                    
                     return (
-                      <div key={model.id} className={`${glassCard} p-3.5 sm:p-4 flex items-center justify-between gap-3 sm:gap-4 hover:bg-white/15 transition-colors w-full`}>
+                      <div key={model.id} className={`${glassCardInner} p-3.5 sm:p-4 flex items-center justify-between gap-3 hover:bg-white/10 transition-colors w-full`}>
                         <div className="flex items-center space-x-3.5 sm:space-x-4 flex-1 min-w-0">
-                          <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center flex-shrink-0 bg-white/10 border border-white/20 text-white/80 shrink-0 shadow-inner`}>
-                            {isWearable ? <Watch className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0" strokeWidth={2}/> : <Smartphone className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0" strokeWidth={2}/>}
+                          <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center bg-white/10 border border-white/20 text-white/80 shrink-0`}>
+                            {isWearable ? <Watch className="w-4 h-4 shrink-0" strokeWidth={2}/> : <Smartphone className="w-4 h-4 shrink-0" strokeWidth={2}/>}
                           </div>
                           <div className="flex flex-col flex-1 min-w-0 pr-2">
-                            <span className="text-[9px] sm:text-[10px] font-bold text-white/60 uppercase tracking-widest truncate w-full mb-0.5 sm:mb-1">{model.modelCode || 'N/A'}</span>
-                            <span className="text-[13px] sm:text-[14px] font-bold text-white truncate w-full drop-shadow-sm">{model.modelName}</span>
+                            <span className="text-[9px] sm:text-[10px] font-bold text-white/60 uppercase tracking-widest truncate w-full mb-0.5">{model.modelCode || 'N/A'}</span>
+                            <span className="text-[13px] sm:text-[14px] font-bold text-white truncate w-full">{model.modelName}</span>
                           </div>
                         </div>
-                        <div className="flex flex-col items-end flex-shrink-0 pl-3 sm:pl-4 border-l border-white/20 justify-center h-full">
-                          <div className="flex items-baseline space-x-1.5 sm:space-x-2 shrink-0">
-                            <span className="text-[9px] sm:text-[10px] font-bold text-white/60 uppercase shrink-0">DP</span>
-                            <span className="text-[13px] sm:text-[15px] font-bold text-white shrink-0 drop-shadow-sm">{model.dp ? (model.dp.toString().includes('₹') ? model.dp : `₹${model.dp}`) : 'N/A'}</span>
-                          </div>
-                          {incentive > 0 ? (
-                            <div className="mt-1.5 sm:mt-2 text-white flex items-center whitespace-nowrap bg-white/20 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md border border-white/30 shrink-0 shadow-inner">
-                              <span className="text-[8px] sm:text-[9px] font-bold uppercase tracking-widest text-white/80 shrink-0">Inc:</span><span className="text-[10.5px] sm:text-[12px] font-bold ml-1 sm:ml-1.5 shrink-0">+₹{incentive}</span>
-                            </div>
-                          ) : <div className="mt-1.5 sm:mt-2 h-[18px] sm:h-[22px]"></div>}
-                        </div>
+                        <span className="text-[13px] sm:text-[15px] font-bold text-white shrink-0 pl-3 border-l border-white/10">{model.dp ? (model.dp.toString().includes('₹') ? model.dp : `₹${model.dp}`) : 'N/A'}</span>
                       </div>
                     );
                   })}
@@ -1387,6 +1360,46 @@ export default function App() {
                   </div>
                 )}
 
+                {/* DEVICE MANAGEMENT */}
+                <div className={`${glassCard} w-full shrink-0 overflow-hidden transition-all duration-300`}>
+                  <div className="p-4 sm:p-5 border-b border-white/10 w-full flex items-center gap-3 bg-white/5">
+                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center border border-white/20 shadow-inner">
+                      <Smartphone className="w-4 h-4 text-white" strokeWidth={2.5} />
+                    </div>
+                    <span className="text-[14px] sm:text-[15px] font-bold text-white truncate drop-shadow-sm">Device Management</span>
+                  </div>
+                  
+                  <div className="flex flex-col w-full">
+                    <button onClick={() => fetchModelsFromSheet(false)} disabled={loadingModels} className="w-full flex items-center justify-between p-4 sm:p-5 hover:bg-white/10 transition-colors border-b border-white/5">
+                      <div className="flex items-center gap-3 sm:gap-4">
+                        <div className="w-10 h-10 rounded-full bg-blue-500/20 border border-blue-500/30 flex items-center justify-center shadow-inner">
+                          <RefreshCw className={`w-4.5 h-4.5 text-blue-400 ${loadingModels ? 'animate-spin' : ''}`} strokeWidth={2} />
+                        </div>
+                        <div className="flex flex-col items-start">
+                          <span className="text-[13.5px] sm:text-[14.5px] font-bold text-white drop-shadow-sm">Sync Devices</span>
+                          <span className="text-[10.5px] sm:text-[11.5px] font-medium text-white/50 mt-0.5">Auto-sync active (Daily)</span>
+                        </div>
+                      </div>
+                    </button>
+
+                    <button onClick={() => setShowDeviceListModal(true)} className="w-full flex items-center justify-between p-4 sm:p-5 hover:bg-white/10 transition-colors">
+                      <div className="flex items-center gap-3 sm:gap-4">
+                        <div className="w-10 h-10 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shadow-inner">
+                          <List className="w-4.5 h-4.5 text-purple-400" strokeWidth={2} />
+                        </div>
+                        <div className="flex flex-col items-start">
+                          <span className="text-[13.5px] sm:text-[14.5px] font-bold text-white drop-shadow-sm">View Device List</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] sm:text-[12px] font-bold text-white/40">{allModels.length} Models</span>
+                        <ChevronRight className="w-4.5 h-4.5 text-white/30" />
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* PAYOUT CONFIG */}
                 <div className={`${glassCard} overflow-hidden w-full shrink-0`}>
                   <button onClick={() => { setDraftSlabs(JSON.parse(JSON.stringify(incentiveSlabs))); setActiveSettingsPage('incentives'); setExpandedSection('smartphone'); }} className="w-full flex items-center justify-between p-4 sm:p-5 hover:bg-white/10 transition-colors">
                     <div className="flex items-center space-x-4 min-w-0">
@@ -1397,14 +1410,14 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* UPDATED COLLAPSIBLE DATA MANAGEMENT */}
+                {/* DATA MANAGEMENT */}
                 <div className={`${glassCard} w-full shrink-0 overflow-hidden transition-all duration-300`}>
                   <button onClick={() => setExpandedSection(expandedSection === 'data' ? null : 'data')} className="w-full flex items-center justify-between p-4 sm:p-5 hover:bg-white/5 transition-colors">
                     <div className="flex items-center space-x-3 sm:space-x-4 min-w-0">
                       <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 border border-white/30 flex items-center justify-center shrink-0 shadow-inner">
                         <Database className="w-4 h-4 sm:w-5 sm:h-5 text-white" strokeWidth={2} />
                       </div>
-                      <span className="text-[14px] sm:text-[15px] font-bold text-white truncate drop-shadow-sm">Data Management</span>
+                      <span className="text-[14px] sm:text-[15px] font-bold text-white truncate drop-shadow-sm">Data Backup & Export</span>
                     </div>
                     <div className={`transition-transform duration-300 p-1.5 sm:p-2 bg-black/20 rounded-full border border-white/10 shrink-0 ${expandedSection === 'data' ? 'rotate-90' : ''}`}>
                       <ChevronRight className="w-4 h-4 text-white" strokeWidth={2} />
@@ -1610,26 +1623,24 @@ export default function App() {
             )}
           </div>
         )}
+
       </div>
 
-      {/* BOTTOM NAV (LIQUID GLASS DOCK) */}
-      {!isAddingSale && !showTargetModal && !saleToDelete && !backupDataToRestore && (!activeSettingsPage || activeSettingsPage === 'main') && (
+      {/* CENTERED LIQUID GLASS BOTTOM DOCK NAV */}
+      {!isAddingSale && !showTargetModal && !saleToDelete && !backupDataToRestore && !showDeviceListModal && (!activeSettingsPage || activeSettingsPage === 'main') && (
         <div className="fixed bottom-5 sm:bottom-7 left-0 right-0 z-40 flex justify-center items-center pointer-events-none px-4 sm:px-6 w-full">
-          <nav className="bg-white/10 backdrop-blur-[40px] border border-white/20 shadow-[0_16px_40px_rgba(0,0,0,0.3)] rounded-full w-full max-w-[280px] sm:max-w-[340px] py-2.5 sm:py-3.5 flex items-center justify-around pointer-events-auto">
-            <button onClick={() => { setActiveBottomTab('dashboard'); setIsAddingSale(false); }} className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 shrink-0 ${activeBottomTab === 'dashboard' ? 'bg-white text-[#1A5F7A] shadow-[0_4px_12px_rgba(255,255,255,0.4)] scale-105 sm:scale-110' : 'hover:bg-white/10'}`}>
-              <LayoutDashboard className={`w-4.5 h-4.5 sm:w-5 sm:h-5 transition-colors duration-300 shrink-0 ${activeBottomTab === 'dashboard' ? 'text-[#1A5F7A]' : 'text-white/70'}`} strokeWidth={2} />
+          <nav className="bg-white/10 backdrop-blur-[40px] border border-white/20 shadow-[0_16px_40px_rgba(0,0,0,0.3)] rounded-full w-auto py-2.5 px-8 sm:py-3.5 sm:px-10 flex items-center justify-center gap-8 pointer-events-auto">
+            <button onClick={() => { setActiveBottomTab('dashboard'); setIsAddingSale(false); }} className={`relative p-3 sm:p-3.5 rounded-full transition-all duration-300 shrink-0 ${activeBottomTab === 'dashboard' ? 'bg-white text-[#1A5F7A] shadow-[0_4px_12px_rgba(255,255,255,0.4)] scale-110' : 'hover:bg-white/10'}`}>
+              <LayoutDashboard className={`w-5 h-5 sm:w-6 sm:h-6 transition-colors duration-300 shrink-0 ${activeBottomTab === 'dashboard' ? 'text-[#1A5F7A]' : 'text-white/70'}`} strokeWidth={2.5} />
             </button>
-            <button onClick={() => setActiveBottomTab('models')} className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 shrink-0 ${activeBottomTab === 'models' ? 'bg-white text-[#1A5F7A] shadow-[0_4px_12px_rgba(255,255,255,0.4)] scale-105 sm:scale-110' : 'hover:bg-white/10'}`}>
-              <Users className={`w-4.5 h-4.5 sm:w-5 sm:h-5 transition-colors duration-300 shrink-0 ${activeBottomTab === 'models' ? 'text-[#1A5F7A]' : 'text-white/70'}`} strokeWidth={2} />
-            </button>
-            <button onClick={() => { setActiveBottomTab('settings'); setActiveSettingsPage('main'); }} className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 shrink-0 ${activeBottomTab === 'settings' ? 'bg-white text-[#1A5F7A] shadow-[0_4px_12px_rgba(255,255,255,0.4)] scale-105 sm:scale-110' : 'hover:bg-white/10'}`}>
-              <Settings className={`w-4.5 h-4.5 sm:w-5 sm:h-5 transition-colors duration-300 shrink-0 ${activeBottomTab === 'settings' ? 'text-[#1A5F7A]' : 'text-white/70'}`} strokeWidth={2} />
+            <button onClick={() => { setActiveBottomTab('settings'); setActiveSettingsPage('main'); }} className={`relative p-3 sm:p-3.5 rounded-full transition-all duration-300 shrink-0 ${activeBottomTab === 'settings' ? 'bg-white text-[#1A5F7A] shadow-[0_4px_12px_rgba(255,255,255,0.4)] scale-110' : 'hover:bg-white/10'}`}>
+              <Settings className={`w-5 h-5 sm:w-6 sm:h-6 transition-colors duration-300 shrink-0 ${activeBottomTab === 'settings' ? 'text-[#1A5F7A]' : 'text-white/70'}`} strokeWidth={2.5} />
             </button>
           </nav>
         </div>
       )}
 
-      {/* STRICT CSS OVERRIDES TO PREVENT BODY OVERFLOW & BOUNCE */}
+      {/* STRICT CSS OVERRIDES */}
       <style dangerouslySetInnerHTML={{__html: `
         html, body {
           max-width: 100vw;
